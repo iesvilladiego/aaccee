@@ -28,7 +28,7 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
-        cacheNames.filter(cacheName => cacheName !== CACHE_NAME)
+        cacheNames.filter(cacheName => cacheName !== CACHE_NAME && cacheName.startsWith('ace-villadiego-'))
           .map(cacheName => caches.delete(cacheName))
       );
     })
