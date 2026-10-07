@@ -1,6 +1,14 @@
 {
-  "name": "ACE Manager",
-  "short_name": "ACE Manager",
+  "name": "AACCEE Manager",
+  "short_name": "AACCEE",
+  "description": "Gestor de AACCEE del IES Virgen de Villadiego - Peñaflor (Sevilla)",
+  "lang": "es",
+  "id": "./",
+  "scope": "./",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0d7377",
   "icons": [
     {
       "src": "icons/icon-48x48.png",
@@ -52,9 +60,5 @@
       "sizes": "512x512",
       "type": "image/png"
     }
-  ],
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#000000"
+  ]
 }
