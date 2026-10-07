@@ -14900,7 +14900,7 @@ function generateResumenEE() {
         }
 
         function initServiceWorker() {
-            navigator.serviceWorker.register('./sw.js')
+            navigator.serviceWorker.register('./sw.js', { scope: './' })
                 .then(function (registro) {
                     console.log('[SW] Registrado. Alcance:', registro.scope);
 
