@@ -1702,15 +1702,6 @@
             background: var(--accent-light);
         }
 
-        /* Contenedor del título de login + chip (centrado) */
-        .login-title-wrap {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-
         /* ============================================================
            MULTPLATAFORMA Y RESPONSIVIDAD
            Safe-areas (notch iPhone / barras gestuales Android),
@@ -1883,10 +1874,7 @@
                     <path d="M12 14v7"/>
                 </svg>
             </div>
-            <div class="login-title-wrap">
-                <h1 class="login-title" style="margin-bottom: 0;">AACCEE Manager</h1>
-                <span class="version-chip hidden" data-app-version title="Versión de la aplicación"><span class="version-dot"></span><span class="version-text"></span></span>
-            </div>
+            <h1 class="login-title">AACCEE Manager</h1>
             <p class="login-subtitle">IES Virgen de Villadiego - Peñaflor (Sevilla)</p>
             
             <form id="loginForm" class="login-form" onsubmit="handleLogin(event)">
@@ -14821,7 +14809,7 @@ function generateResumenEE() {
 
         var versionMostrada = null;
 
-        // Pinta la versión en todos los chips de la página (header y login)
+        // Pinta la versión en el chip de la página (header principal)
         function pintarVersion(version) {
             if (!version) return;
             versionMostrada = version;
