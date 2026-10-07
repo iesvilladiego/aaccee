@@ -1,8 +1,4 @@
 const CACHE_NAME = 'ace-villadiego-v2.25';
-
-// Versión de la app derivada del nombre de la caché (p. ej. 'v25')
-const APP_VERSION = (CACHE_NAME.match(/v[\w.]+$/i) || ['desconocida'])[0];
-
 const urlsToCache = [
   '/',
   '/index.html',
@@ -37,36 +33,8 @@ self.addEventListener('activate', event => {
       );
     })
   );
-  self.clients.claim().then(() => broadcastVersion());
+  self.clients.claim();
 });
-
-// ==================== VERSIÓN DE LA APP ====================
-// Responde a las peticiones GET_VERSION de la página (chip de versión)
-self.addEventListener('message', event => {
-  if (!event.data || event.data.type !== 'GET_VERSION') return;
-
-  const payload = { type: 'VERSION', version: APP_VERSION, cache: CACHE_NAME };
-
-  // Responder por el MessageChannel del solicitante si existe
-  if (event.ports && event.ports[0]) {
-    try { event.ports[0].postMessage(payload); } catch (err) { /* port cerrado */ }
-  } else if (event.source) {
-    try { event.source.postMessage(payload); } catch (err) { /* source no disponible */ }
-  }
-});
-
-// Notifica la versión a todas las ventanas abiertas (se llama al activarse un SW nuevo)
-function broadcastVersion() {
-  self.clients.matchAll({ includeUncontrolled: true, type: 'window' })
-    .then(clients => {
-      clients.forEach(client => {
-        try {
-          client.postMessage({ type: 'VERSION', version: APP_VERSION, cache: CACHE_NAME });
-        } catch (err) { /* cliente no disponible */ }
-      });
-    })
-    .catch(err => console.log('Error difundiendo versión:', err));
-}
 
 // Fetch event - Network first, fallback to cache
 self.addEventListener('fetch', event => {
@@ -117,4 +85,4 @@ self.addEventListener('sync', event => {
 async function syncBackups() {
   // This would sync pending changes when back online
   console.log('Background sync triggered');
-}
+}
