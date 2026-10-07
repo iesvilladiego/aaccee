@@ -2,12 +2,16 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
     <meta name="theme-color" content="#0d7377">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="AACCEE Manager">
+    <meta name="application-name" content="AACCEE Manager">
     <meta name="format-detection" content="telephone=no">
+    <!-- Manifest PWA: instalable en Android/Chrome/Edge y escritorio -->
+    <link rel="manifest" href="manifest.json">
     <title>AACCEE - IES Virgen de Villadiego</title>
     
     <!-- Favicon -->
@@ -1653,6 +1657,219 @@
         .skip-link:focus {
             top: 0;
         }
+
+        /* ============================================================
+           CHIP DE VERSIÓN (obtenida desde el Service Worker)
+           Usa la paleta de la app: --accent (#0d7377) y sus derivados
+           ============================================================ */
+        .version-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.125rem 0.5rem;
+            border-radius: 9999px;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.65rem;
+            font-weight: 700;
+            line-height: 1.3;
+            letter-spacing: 0.04em;
+            background: rgba(13, 115, 119, 0.10);
+            color: var(--accent);
+            border: 1px solid rgba(13, 115, 119, 0.28);
+            white-space: nowrap;
+            flex-shrink: 0;
+            user-select: none;
+            cursor: default;
+            transition: background 0.2s, color 0.2s, border-color 0.2s;
+        }
+
+        .version-chip .version-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-light);
+            flex-shrink: 0;
+        }
+
+        /* Chip en modo oscuro: usa el acento claro de la paleta */
+        [data-theme="dark"] .version-chip {
+            background: rgba(20, 163, 168, 0.14);
+            color: var(--accent-light);
+            border-color: rgba(20, 163, 168, 0.35);
+        }
+
+        [data-theme="dark"] .version-chip .version-dot {
+            background: var(--accent-light);
+        }
+
+        /* Contenedor del título de login + chip (centrado) */
+        .login-title-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        /* ============================================================
+           MULTPLATAFORMA Y RESPONSIVIDAD
+           Safe-areas (notch iPhone / barras gestuales Android),
+           ajustes táctiles, zoom iOS, móviles pequeños y tablets
+           ============================================================ */
+
+        /* Evita el inflado automático de texto al rotar (iOS/Android) */
+        html {
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+        }
+
+        body {
+            -webkit-tap-highlight-color: transparent;
+            overflow-wrap: break-word;
+        }
+
+        /* Evita el scroll horizontal sin romper el header sticky */
+        @supports (overflow: clip) {
+            body {
+                overflow-x: clip;
+            }
+        }
+
+        /* Blur del header con prefijo webkit (Safari) */
+        header {
+            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(12px);
+        }
+
+        /* Desplazamiento con inercia y sin "scroll chaining" en zonas scrollables */
+        .nav-tabs,
+        .accordion-content,
+        .modal,
+        .mobile-nav-panel,
+        .table-wrapper,
+        .crono-wrapper,
+        #cursosList {
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+        }
+
+        .modal-overlay {
+            overscroll-behavior: contain;
+        }
+
+        /* Mejor respuesta táctil (elimina retardo de doble tap en iOS) */
+        .btn,
+        .nav-tab,
+        .manual-btn,
+        .mobile-nav-link,
+        .accordion-header {
+            touch-action: manipulation;
+        }
+
+        /* ---------- Safe areas: notch (iPhone) y barras del sistema ---------- */
+        @supports (padding: env(safe-area-inset-top)) {
+            header {
+                padding-top: env(safe-area-inset-top);
+                padding-left: env(safe-area-inset-left);
+                padding-right: env(safe-area-inset-right);
+            }
+
+            #main-content {
+                padding-left: calc(1rem + env(safe-area-inset-left));
+                padding-right: calc(1rem + env(safe-area-inset-right));
+                padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+            }
+
+            .toast-container {
+                right: calc(1.5rem + env(safe-area-inset-right));
+                bottom: calc(1.5rem + env(safe-area-inset-bottom));
+            }
+
+            .mobile-nav-panel {
+                padding-left: calc(1.5rem + env(safe-area-inset-left));
+                padding-top: calc(1.5rem + env(safe-area-inset-top));
+            }
+
+            .login-container {
+                margin-bottom: calc(1rem + env(safe-area-inset-bottom));
+            }
+
+            #splash .splash-content {
+                padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            }
+        }
+
+        @media (max-width: 768px) {
+            /* Evita el auto-zoom de iOS al enfocar campos (necesita >=16px) */
+            .form-select,
+            .login-input,
+            textarea.form-input,
+            input[type="text"]:not(.form-input):not(.login-input),
+            input[type="number"],
+            input[type="date"],
+            input[type="time"] {
+                font-size: 16px !important;
+            }
+
+            /* Los toasts respetan la barra gestual inferior */
+            .toast-container {
+                left: 1rem;
+                right: 1rem;
+                bottom: calc(1rem + env(safe-area-inset-bottom));
+            }
+
+            /* Bottom-sheet de modales respeta el safe-area inferior */
+            .modal {
+                padding-bottom: env(safe-area-inset-bottom);
+            }
+
+            /* Botones compactos junto a selects no ocupan todo el ancho */
+            .flex .btn-primary.flex-shrink-0,
+            .flex .btn-secondary.flex-shrink-0 {
+                width: auto;
+            }
+        }
+
+        /* ---------- Tablets (769px–1024px): pestañas más compactas ---------- */
+        @media (max-width: 1024px) and (min-width: 769px) {
+            .nav-tab {
+                padding: 0.625rem 0.875rem;
+                font-size: 0.875rem;
+            }
+        }
+
+        /* ---------- Móviles pequeños (<=360px) ---------- */
+        @media (max-width: 360px) {
+            header h1 {
+                font-size: 0.95rem !important;
+            }
+
+            .version-chip {
+                font-size: 0.6rem;
+                padding: 0.1rem 0.4rem;
+            }
+
+            header .w-10.h-10 {
+                width: 2.25rem;
+                height: 2.25rem;
+            }
+
+            header .max-w-7xl {
+                padding-left: 0.625rem;
+                padding-right: 0.625rem;
+            }
+
+            .login-title {
+                font-size: 1.25rem;
+            }
+        }
+
+        /* El chip no debe aparecer en impresiones ni PDF */
+        @media print {
+            .version-chip {
+                display: none !important;
+            }
+        }
     </style>
 </head>
 <body class="min-h-screen bg-pattern">
@@ -1666,7 +1883,10 @@
                     <path d="M12 14v7"/>
                 </svg>
             </div>
-            <h1 class="login-title">AACCEE Manager</h1>
+            <div class="login-title-wrap">
+                <h1 class="login-title" style="margin-bottom: 0;">AACCEE Manager</h1>
+                <span class="version-chip hidden" data-app-version title="Versión de la aplicación"><span class="version-dot"></span><span class="version-text"></span></span>
+            </div>
             <p class="login-subtitle">IES Virgen de Villadiego - Peñaflor (Sevilla)</p>
             
             <form id="loginForm" class="login-form" onsubmit="handleLogin(event)">
@@ -1787,7 +2007,10 @@
                             </svg>
                         </div>
                         <div class="min-w-0">
-                            <h1 class="font-display text-lg md:text-xl font-bold truncate" style="color: var(--accent);">AACCEE Manager</h1>
+                            <div class="flex items-center gap-1.5 min-w-0">
+                                <h1 class="font-display text-lg md:text-xl font-bold truncate" style="color: var(--accent);">AACCEE Manager</h1>
+                                <span class="version-chip hidden" data-app-version title="Versión de la aplicación"><span class="version-dot"></span><span class="version-text"></span></span>
+                            </div>
                             <p class="text-xs hidden sm:block truncate" style="color: var(--muted);">IES Virgen de Villadiego</p>
                         </div>
                     </div>
@@ -4654,6 +4877,29 @@
             
             console.log('[INIT] Elementos DOM encontrados correctamente');
             
+            // Inicializar tema y registrar su toggle SIEMPRE (antes de cualquier return),
+            // para que el botón de modo oscuro funcione también con sesión guardada.
+            // dataset.bound evita registrar el listener más de una vez.
+            initTheme();
+            const themeToggle = document.getElementById('themeToggle');
+            if (themeToggle && !themeToggle.dataset.bound) {
+                themeToggle.dataset.bound = '1';
+                themeToggle.addEventListener('click', () => {
+                    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+                    localStorage.setItem('theme', isDark ? 'light' : 'dark');
+                    
+                    const sunIcon = document.getElementById('sunIcon');
+                    const moonIcon = document.getElementById('moonIcon');
+                    if (sunIcon) sunIcon.classList.toggle('hidden');
+                    if (moonIcon) moonIcon.classList.toggle('hidden');
+
+                    // Actualizar el color de la barra del navegador/nativa al alternar el tema
+                    if (typeof actualizarThemeColorMeta === 'function') actualizarThemeColorMeta();
+                });
+                console.log('[INIT] Theme toggle inicializado');
+            }
+            
             // Mostrar estado de carga mientras se cargan usuarios
             if (loginBtn) {
                 loginBtn.disabled = true;
@@ -4717,21 +4963,6 @@
             app.classList.add('hidden');
 
             initTheme();
-            
-            // Inicializar theme toggle
-            const themeToggle = document.getElementById('themeToggle');
-            if (themeToggle) {
-                themeToggle.addEventListener('click', () => {
-                    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-                    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
-                    localStorage.setItem('theme', isDark ? 'light' : 'dark');
-                    
-                    const sunIcon = document.getElementById('sunIcon');
-                    const moonIcon = document.getElementById('moonIcon');
-                    if (sunIcon) sunIcon.classList.toggle('hidden');
-                    if (moonIcon) moonIcon.classList.toggle('hidden');
-                });
-            }
             
             console.log('[INIT] Inicialización completada');
         });
@@ -5642,6 +5873,9 @@
                 if (sunIcon) sunIcon.classList.remove('hidden');
                 if (moonIcon) moonIcon.classList.add('hidden');
             }
+
+            // Sincronizar el color de la UI del sistema (barra navegador / PWA) con el tema
+            if (typeof actualizarThemeColorMeta === 'function') actualizarThemeColorMeta();
         }
         
         // ==================== CURSOS ESCOLARES ====================
@@ -14549,5 +14783,116 @@ function generateResumenEE() {
 }
 
     </script>
+
+    <script>
+    // ==================== SERVICE WORKER: REGISTRO Y CHIP DE VERSIÓN ====================
+    // La versión se obtiene del Service Worker (CACHE_NAME en sw.js, p. ej. 'v25')
+    // y se muestra en el chip junto al título "AACCEE Manager".
+    (function () {
+        'use strict';
+
+        // Sin soporte de SW el chip permanece oculto (comportamiento degradado y seguro)
+        if (!('serviceWorker' in navigator)) {
+            console.warn('[SW] Service Worker no soportado en este navegador');
+            return;
+        }
+
+        // El registro requiere contexto seguro: HTTPS, localhost o file:// se omite
+        var esContextoSeguro = location.protocol === 'https:' ||
+            location.hostname === 'localhost' ||
+            location.hostname === '127.0.0.1' ||
+            location.protocol === 'chrome-extension:';
+        if (!esContextoSeguro) {
+            console.warn('[SW] Registro omitido: se requiere HTTPS o localhost');
+            return;
+        }
+
+        // Pinta la versión en todos los chips de la página (header y login)
+        function pintarVersion(version) {
+            if (!version) return;
+            var chips = document.querySelectorAll('.version-chip[data-app-version]');
+            chips.forEach(function (chip) {
+                var textEl = chip.querySelector('.version-text');
+                if (textEl) textEl.textContent = version;
+                chip.classList.remove('hidden');
+            });
+            console.log('[SW] Versión de la app:', version);
+        }
+
+        // Escucha el broadcast que emite el SW al activarse una versión nueva
+        navigator.serviceWorker.addEventListener('message', function (event) {
+            if (event.data && event.data.type === 'VERSION' && event.data.version) {
+                pintarVersion(event.data.version);
+            }
+        });
+
+        // Pide la versión por un MessageChannel (respuesta puntual y privada)
+        function solicitarVersion(sw) {
+            if (!sw) return;
+            try {
+                var canal = new MessageChannel();
+                canal.port1.onmessage = function (event) {
+                    if (event.data && event.data.type === 'VERSION' && event.data.version) {
+                        pintarVersion(event.data.version);
+                    }
+                };
+                sw.postMessage({ type: 'GET_VERSION' }, [canal.port2]);
+            } catch (err) {
+                console.log('[SW] No se pudo solicitar la versión:', err);
+            }
+        }
+
+        function initServiceWorker() {
+            navigator.serviceWorker.register('./sw.js')
+                .then(function (registro) {
+                    console.log('[SW] Registrado. Alcance:', registro.scope);
+
+                    // Petición inicial: al controlador actual o, en su defecto, al SW activo
+                    if (navigator.serviceWorker.controller) {
+                        solicitarVersion(navigator.serviceWorker.controller);
+                    } else {
+                        navigator.serviceWorker.ready.then(function (reg) {
+                            if (reg.active) solicitarVersion(reg.active);
+                        }).catch(function () { /* sin SW activo */ });
+                    }
+
+                    // Cuando un SW nuevo toma el control (tras una actualización), refresca el chip
+                    var swAnterior = navigator.serviceWorker.controller;
+                    navigator.serviceWorker.addEventListener('controllerchange', function () {
+                        if (navigator.serviceWorker.controller && navigator.serviceWorker.controller !== swAnterior) {
+                            swAnterior = navigator.serviceWorker.controller;
+                            solicitarVersion(swAnterior);
+                        }
+                    });
+
+                    // Comprueba actualizaciones al volver a la app (detecta nuevas versiones pronto)
+                    document.addEventListener('visibilitychange', function () {
+                        if (document.visibilityState === 'visible' && registro && registro.update) {
+                            registro.update().catch(function () { /* sin conexión */ });
+                        }
+                    });
+                })
+                .catch(function (err) {
+                    console.log('[SW] No se pudo registrar el Service Worker:', err);
+                });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initServiceWorker);
+        } else {
+            initServiceWorker();
+        }
+    })();
+
+    // ==================== COLOR DE LA UI DEL SISTEMA SEGÚN EL TEMA ====================
+    // Sincroniza meta[name=theme-color] (barra del navegador / barra de estado PWA)
+    // con el tema activo de la app (claro: accent #0d7377, oscuro: #1a1a1a).
+    function actualizarThemeColorMeta() {
+        var meta = document.querySelector('meta[name="theme-color"]:not([media])');
+        if (!meta) return;
+        var esOscuro = document.documentElement.getAttribute('data-theme') === 'dark';
+        meta.setAttribute('content', esOscuro ? '#1a1a1a' : '#0d7377');
+    }
+    </script>
 </body>
-</html>
+</html>
