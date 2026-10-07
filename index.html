@@ -14786,8 +14786,17 @@ function generateResumenEE() {
 
     <script>
     // ==================== SERVICE WORKER: REGISTRO Y CHIP DE VERSIÓN ====================
-    // La versión se obtiene del Service Worker (CACHE_NAME en sw.js, p. ej. 'v25')
-    // y se muestra en el chip junto al título "AACCEE Manager".
+    // La versión de la app vive en el Service Worker (CACHE_NAME en sw.js, p. ej.
+    // 'ace-villadiego-v2.25' -> 'v2.25') y se muestra en el chip junto al título
+    // "AACCEE Manager". Se resuelve con 3 estrategias en cascada, para funcionar
+    // con cualquier implementación del sw.js:
+    //   1. Protocolo de mensajes: GET_VERSION por MessageChannel / broadcast
+    //      (solo si el SW implementa el handler; si no, se ignora sin error).
+    //   2. Cache Storage: se lee la caché activa del SW (ace-villadiego-*) y se
+    //      extrae el sufijo de versión. Es la "fuente de verdad" del versionado
+    //      por CACHE_NAME y no requiere cooperación del SW.
+    //   3. Código del sw.js: como último recurso (1ª visita antes de instalar),
+    //      se descarga sw.js y se parsea CACHE_NAME.
     (function () {
         'use strict';
 
@@ -14807,9 +14816,15 @@ function generateResumenEE() {
             return;
         }
 
+        // Prefijo de los caches de la app (coincide con CACHE_NAME en sw.js)
+        var PREFIJO_CACHE = 'ace-villadiego-';
+
+        var versionMostrada = null;
+
         // Pinta la versión en todos los chips de la página (header y login)
         function pintarVersion(version) {
             if (!version) return;
+            versionMostrada = version;
             var chips = document.querySelectorAll('.version-chip[data-app-version]');
             chips.forEach(function (chip) {
                 var textEl = chip.querySelector('.version-text');
@@ -14819,15 +14834,8 @@ function generateResumenEE() {
             console.log('[SW] Versión de la app:', version);
         }
 
-        // Escucha el broadcast que emite el SW al activarse una versión nueva
-        navigator.serviceWorker.addEventListener('message', function (event) {
-            if (event.data && event.data.type === 'VERSION' && event.data.version) {
-                pintarVersion(event.data.version);
-            }
-        });
-
-        // Pide la versión por un MessageChannel (respuesta puntual y privada)
-        function solicitarVersion(sw) {
+        // ---------- Estrategia 1: protocolo de mensajes (GET_VERSION) ----------
+        function pedirVersionPorMensaje(sw) {
             if (!sw) return;
             try {
                 var canal = new MessageChannel();
@@ -14838,8 +14846,69 @@ function generateResumenEE() {
                 };
                 sw.postMessage({ type: 'GET_VERSION' }, [canal.port2]);
             } catch (err) {
-                console.log('[SW] No se pudo solicitar la versión:', err);
+                console.log('[SW] No se pudo solicitar la versión por mensajes:', err);
             }
+        }
+
+        // Escucha el broadcast que emite el SW al activarse una versión nueva
+        // (solo tiene efecto si el sw.js implementa el protocolo de mensajes)
+        navigator.serviceWorker.addEventListener('message', function (event) {
+            if (event.data && event.data.type === 'VERSION' && event.data.version) {
+                pintarVersion(event.data.version);
+            }
+        });
+
+        // ---------- Estrategia 2: caché activa del Service Worker ----------
+        // El versionado de la app es el sufijo del CACHE_NAME ('ace-villadiego-v2.25'
+        // -> 'v2.25'). La caché activa la crea/gestiona el propio SW, así que esta
+        // lectura refleja siempre la versión realmente instalada.
+        function pedirVersionPorCache() {
+            if (!window.caches || !caches.keys) return;
+            caches.keys().then(function (nombres) {
+                if (versionMostrada) return;
+                var generico = null;
+                for (var i = 0; i < nombres.length; i++) {
+                    var nombre = nombres[i];
+                    if (nombre.toLowerCase().indexOf(PREFIJO_CACHE) === 0) {
+                        var sufijo = nombre.slice(PREFIJO_CACHE.length);
+                        if (sufijo) { pintarVersion(sufijo); return; }
+                    }
+                    // Respaldo genérico: cualquier caché con sufijo -vX.Y
+                    var m = nombre.match(/-(v[\w.]+)$/i);
+                    if (m && !generico) generico = m[1];
+                }
+                if (generico) pintarVersion(generico);
+            }).catch(function () { /* Cache Storage no disponible */ });
+        }
+
+        // ---------- Estrategia 3: parsear el código del sw.js ----------
+        // Útil en la primera visita, mientras el SW aún instala y no hay caché.
+        function pedirVersionPorScript() {
+            if (versionMostrada) return;
+            try {
+                fetch('./sw.js', { cache: 'no-store' })
+                    .then(function (respuesta) {
+                        return respuesta.ok ? respuesta.text() : '';
+                    })
+                    .then(function (texto) {
+                        if (!texto || versionMostrada) return;
+                        var m = texto.match(/CACHE_NAME\s*=\s*['"][^'"]*?(v[\w.]+)['"]/i);
+                        if (m && m[1]) pintarVersion(m[1]);
+                    })
+                    .catch(function () { /* sin conexión y sin caché previa */ });
+            } catch (err) { /* fetch no disponible */ }
+        }
+
+        // Lanza las estrategias en cascada (la 2 y la 3 son las que funcionan con
+        // el sw.js actual, que no responde a mensajes)
+        function resolverVersion() {
+            var sw = navigator.serviceWorker.controller;
+            if (sw) pedirVersionPorMensaje(sw);
+            pedirVersionPorCache();
+            // Pequeña espera para dar prioridad a mensajes/caché antes de parsear
+            setTimeout(function () {
+                if (!versionMostrada) pedirVersionPorScript();
+            }, 800);
         }
 
         function initServiceWorker() {
@@ -14847,21 +14916,25 @@ function generateResumenEE() {
                 .then(function (registro) {
                     console.log('[SW] Registrado. Alcance:', registro.scope);
 
-                    // Petición inicial: al controlador actual o, en su defecto, al SW activo
+                    // Resolución inicial de la versión
                     if (navigator.serviceWorker.controller) {
-                        solicitarVersion(navigator.serviceWorker.controller);
+                        resolverVersion();
                     } else {
-                        navigator.serviceWorker.ready.then(function (reg) {
-                            if (reg.active) solicitarVersion(reg.active);
+                        // Primera visita: esperar a que el SW se active y tome el control
+                        navigator.serviceWorker.ready.then(function () {
+                            resolverVersion();
                         }).catch(function () { /* sin SW activo */ });
                     }
 
-                    // Cuando un SW nuevo toma el control (tras una actualización), refresca el chip
+                    // Cuando un SW nuevo toma el control (tras una actualización),
+                    // refresca la versión mostrada (la caché nueva ya estará creada)
                     var swAnterior = navigator.serviceWorker.controller;
                     navigator.serviceWorker.addEventListener('controllerchange', function () {
                         if (navigator.serviceWorker.controller && navigator.serviceWorker.controller !== swAnterior) {
                             swAnterior = navigator.serviceWorker.controller;
-                            solicitarVersion(swAnterior);
+                            versionMostrada = null; // permite re-resolver la versión
+                            resolverVersion();
+                            setTimeout(resolverVersion, 600); // corrige si la caché vieja aún existía
                         }
                     });
 
