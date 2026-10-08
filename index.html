@@ -322,9 +322,8 @@
             max-width: 260px;
         }
 
-        @media (max-width: 639px) {
-            #headerCursoActivo { display: none !important; }
-        }
+        /* El chip de curso activo se muestra también en móvil: reglas en el
+           bloque "MULTIPLATAFORMA Y RESPONSIVIDAD" al final de la hoja */
 
         /* Cronograma */
         .crono-cell {
@@ -410,6 +409,7 @@
         .toast.success { background: var(--success); }
         .toast.error { background: var(--danger); }
         .toast.warning { background: var(--warning); }
+        .toast.info { background: var(--accent); }
 
         @keyframes slideIn {
             from { transform: translateX(100%); opacity: 0; }
@@ -1365,48 +1365,59 @@
                 right: 0.25rem;
             }
 
+            /* Cronograma en móvil: tarjetas apiladas por curso. La primera
+               celda (curso) actúa como cabecera de la tarjeta y cada
+               trimestre muestra su etiqueta mediante td[data-label]. */
             #cronogramaTable {
                 display: block;
+                width: 100%;
             }
-            
-            #cronogramaTable thead,
+
+            #cronogramaTable thead {
+                display: none;
+            }
+
             #cronogramaTable tbody,
-            #cronogramaTable th,
-            #cronogramaTable td,
-            #cronogramaTable tr {
+            #cronogramaTable tr,
+            #cronogramaTable td {
                 display: block;
+                width: 100%;
             }
-            
-            #cronogramaTable thead tr {
-                position: absolute;
-                top: -9999px;
-                left: -9999px;
-            }
-            
+
             #cronogramaTable tr {
                 border: 1px solid var(--border);
-                border-radius: 0.5rem;
+                border-radius: 0.75rem;
                 margin-bottom: 0.75rem;
-                padding: 0.75rem;
+                padding: 0.5rem;
                 background: var(--card);
+                overflow: hidden;
             }
-            
+
             #cronogramaTable td {
                 border: none;
                 position: relative;
-                padding-left: 50%;
+                padding: 0.375rem;
                 text-align: left !important;
             }
-            
-            #cronogramaTable td::before {
+
+            /* Celda-curso: cabecera de la tarjeta */
+            #cronogramaTable td:first-child {
+                font-weight: 700;
+                background: linear-gradient(135deg, rgba(13, 115, 119, 0.12) 0%, rgba(13, 115, 119, 0.04) 100%);
+                border-radius: 0.5rem;
+                padding: 0.625rem 0.75rem;
+            }
+
+            /* Etiqueta del trimestre encima de la celda */
+            #cronogramaTable td:not(:first-child)::before {
                 content: attr(data-label);
-                position: absolute;
-                left: 0.75rem;
-                top: 0.75rem;
-                font-weight: 600;
+                display: block;
+                font-weight: 700;
                 color: var(--accent);
-                font-size: 0.75rem;
+                font-size: 0.7rem;
+                letter-spacing: 0.03em;
                 text-transform: uppercase;
+                margin-bottom: 0.25rem;
             }
             
             .modal {
@@ -1857,8 +1868,151 @@
 
         /* El chip no debe aparecer en impresiones ni PDF */
         @media print {
-            .version-chip {
+            .version-chip,
+            .crono-touch-bar {
                 display: none !important;
+            }
+        }
+
+        /* ============================================================
+           HEADER 100% RESPONSIVO (paridad escritorio ↔ móvil)
+           - La fila del título envuelve: el chip de versión NUNCA se
+             recorta (baja a su propia línea si no cabe).
+           - En ≤639px los controles pasan a fila propia completa y el
+             chip de curso activo comparte línea con ellos, truncado.
+           ============================================================ */
+        .header-title-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.375rem;
+            row-gap: 0.125rem;
+            min-width: 0;
+        }
+
+        .header-title-row h1 {
+            /* Permite que el título ceda espacio antes que el chip */
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        @media (max-width: 639px) {
+            /* Cabecera compacta: el padding 0.75rem de <768px se reduce aquí
+               para que el header sticky no coma pantalla en móviles pequeños */
+            header {
+                padding-top: calc(0.25rem + env(safe-area-inset-top, 0px)) !important;
+                padding-bottom: 0.25rem !important;
+            }
+
+            .header-row {
+                flex-wrap: wrap;
+                row-gap: 0.375rem;
+                padding-top: 0 !important;
+                padding-bottom: 0 !important;
+            }
+
+            /* El nombre del centro pasa al menú móvil (y ya está en login y
+               splash): mantiene la cabecera compacta sin perder información */
+            .header-subtitle {
+                display: none;
+            }
+
+            .session-info {
+                padding: 0.3rem 0.5rem;
+            }
+
+            .header-controls {
+                order: 2;
+                flex-basis: 100%;
+                min-width: 0;
+                flex-wrap: wrap;
+                row-gap: 0.375rem;
+            }
+
+            /* El chip de curso activo pasa a fila propia: siempre legible
+               (texto truncado con el nombre completo en el tooltip) */
+            #headerCursoActivo {
+                flex: 1 1 100%;
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                display: block;
+            }
+
+            /* Un poco más de sitio para el nombre del usuario con la fila propia */
+            .session-user {
+                max-width: 90px;
+            }
+        }
+
+        /* ============================================================
+           CRONOGRAMA TÁCTIL: selección y barra de acciones
+           (equivalente móvil del drag & drop y del doble clic)
+           ============================================================ */
+        .activity-tag.tag-selected {
+            outline: 3px solid var(--accent);
+            outline-offset: 1px;
+            box-shadow: 0 0 0 6px rgba(13, 115, 119, 0.18);
+        }
+
+        .crono-touch-bar {
+            position: fixed;
+            left: 1rem;
+            right: 1rem;
+            bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+            z-index: 1100;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.5rem 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+        }
+
+        .crono-touch-bar-info {
+            flex: 1 1 200px;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.125rem;
+        }
+
+        .crono-touch-bar-nombre {
+            font-weight: 700;
+            color: var(--accent);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .crono-touch-bar-hint {
+            font-size: 0.72rem;
+            color: var(--muted);
+        }
+
+        .crono-touch-bar-actions {
+            display: flex;
+            gap: 0.5rem;
+            flex-shrink: 0;
+        }
+
+        /* Anula el width:100% que .btn sufre en móvil dentro de la barra */
+        .crono-touch-bar .btn {
+            width: auto;
+        }
+
+        @media (max-width: 480px) {
+            .crono-touch-bar {
+                padding: 0.625rem 0.75rem;
+            }
+            .crono-touch-bar-info {
+                flex-basis: 100%;
             }
         }
     </style>
@@ -1920,7 +2074,10 @@
     <div id="mobileNav" class="mobile-nav" onclick="closeMobileNav(event)">
         <div class="mobile-nav-panel" onclick="event.stopPropagation()">
             <div class="mobile-nav-header">
-                <span style="font-weight: 700; color: var(--accent);">Menú</span>
+                <div>
+                    <span style="font-weight: 700; color: var(--accent);">Menú</span>
+                    <div style="font-size: 0.7rem; color: var(--muted); margin-top: 0.125rem;">IES Virgen de Villadiego · Peñaflor (Sevilla)</div>
+                </div>
                 <button class="mobile-nav-close" onclick="closeMobileNav()" aria-label="Cerrar menú">✕</button>
             </div>
             <nav class="mobile-nav-links">
@@ -1969,6 +2126,28 @@
                     Cerrar Sesión
                 </button>
             </div>
+
+            <!-- Utilidades multiplataforma del menú móvil: instalación PWA,
+                 manual de uso del perfil y versión de la app (paridad total
+                 con la cabecera de escritorio) -->
+            <div id="mobileAppUtils" style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+                <button id="mobileInstallBtn" type="button" class="mobile-nav-link hidden" onclick="instalarApp()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Instalar aplicación
+                </button>
+                <a id="mobileManualBtn" class="mobile-nav-link hidden" href="#" download target="_blank" rel="noopener" title="Descargar el manual de uso de tu perfil">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                    </svg>
+                    Manual de uso
+                </a>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.75rem 0.5rem 0.25rem;">
+                    <span style="font-size: 0.8rem; color: var(--muted);">Versión de la app</span>
+                    <span class="version-chip hidden" data-app-version title="Versión de la aplicación"><span class="version-dot"></span><span class="version-text"></span></span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1978,7 +2157,7 @@
         <header class="sticky top-0 z-50 backdrop-blur-md bg-opacity-90" style="background: var(--bg); border-bottom: 1px solid var(--border);">
             <div class="max-w-7xl mx-auto px-4">
                 <!-- Fila 1: Marca + controles de sesión (compactos) -->
-                <div class="flex items-center justify-between py-2 gap-3">
+                <div class="header-row flex items-center justify-between py-2 gap-3">
                     <!-- Izquierda: Logo + Título (se encoge antes que desbordar) -->
                     <div class="flex items-center gap-3 min-w-0">
                         <button class="mobile-menu-btn md:hidden" onclick="openMobileNav()" aria-label="Abrir menú">
@@ -1995,17 +2174,25 @@
                             </svg>
                         </div>
                         <div class="min-w-0">
-                            <div class="flex items-center gap-1.5 min-w-0">
+                            <div class="header-title-row">
                                 <h1 class="font-display text-lg md:text-xl font-bold truncate" style="color: var(--accent);">AACCEE Manager</h1>
                                 <span class="version-chip hidden" data-app-version title="Versión de la aplicación"><span class="version-dot"></span><span class="version-text"></span></span>
                             </div>
-                            <p class="text-xs hidden sm:block truncate" style="color: var(--muted);">IES Virgen de Villadiego</p>
+                            <p class="header-subtitle text-xs truncate" style="color: var(--muted);">IES Virgen de Villadiego</p>
                         </div>
                     </div>
                     
                     <!-- Derecha: Controles -->
-                    <div class="flex items-center gap-2 lg:gap-3 flex-shrink-0">
+                    <div class="header-controls flex items-center gap-2 lg:gap-3 flex-shrink-0">
                         <span id="headerCursoActivo" class="text-xs px-3 py-1 rounded-full hidden" style="background: rgba(13, 115, 119, 0.1); color: var(--accent);"></span>
+
+                        <!-- Instalar como aplicación (PWA): Android, Chrome/Edge y escritorio -->
+                        <button id="installBtn" class="manual-btn hidden" type="button" onclick="instalarApp()" title="Instalar la aplicación en este dispositivo">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            <span class="hidden sm:inline">Instalar</span>
+                        </button>
 
                         <!-- Manual de uso del perfil: descarga el PDF según el rol conectado -->
                         <a id="manualBtn" class="manual-btn hidden" href="#" download target="_blank" rel="noopener" title="Descargar el manual de uso de tu perfil">
@@ -3302,7 +3489,7 @@
                     <!-- Barra de control de cuadrantes (visible/ocultar con botones toggle) -->
                     <div class="card p-4">
                         <div class="flex flex-wrap items-center gap-2 sm:gap-3">
-                            <span class="text-sm font-semibold mr-1 hidden sm:inline" style="color: var(--muted);">Cuadrantes:</span>
+                            <span class="text-sm font-semibold mr-1" style="color: var(--muted);">Cuadrantes:</span>
                             <button id="btnToggleCC" class="btn-toggle active" onclick="toggleCuadrante('CC')" aria-pressed="true" title="Ver el cronograma de actividades complementarias (AACC)">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
@@ -3486,7 +3673,7 @@
                             </h2>
                         </div>
                         <div class="p-6 space-y-4">
-                            <p class="text-sm" style="color: var(--muted);">Arrastra las etiquetas entre celdas para reorganizar las actividades</p>
+                            <p class="text-sm" style="color: var(--muted);">Arrastra las etiquetas entre celdas para reorganizar las actividades. En pantallas táctiles: toca una actividad y luego la celda de destino.</p>
                             <div class="crono-wrapper overflow-x-auto">
                                 <table id="cronogramaTable" class="w-full border-collapse cronograma-table">
                                     <thead>
@@ -4149,6 +4336,51 @@
     <!-- Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
 
+    <!-- Barra táctil del cronograma: sustituye al drag & drop en pantallas
+         táctiles (tocar actividad → tocar celda destino) y ofrece Editar
+         (equivalente al doble clic de escritorio) -->
+    <div id="cronoTouchBar" class="crono-touch-bar hidden" role="status" aria-live="polite">
+        <div class="crono-touch-bar-info">
+            <span id="touchBarNombre" class="crono-touch-bar-nombre"></span>
+            <span class="crono-touch-bar-hint">Toca la celda de destino para moverla</span>
+        </div>
+        <div class="crono-touch-bar-actions">
+            <button type="button" class="btn btn-primary btn-sm" onclick="touchBarEditar()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Editar
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="deseleccionarTagTouch()">
+                Cancelar
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal: instalar en iPhone/iPad (iOS no dispara beforeinstallprompt) -->
+    <div id="iosInstallModal" class="modal-overlay" onclick="if (event.target === this) cerrarModalIosInstall()">
+        <div class="modal p-6" style="max-width: 420px;">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="font-display text-xl font-bold" style="color: var(--accent);">Instalar en iPhone / iPad</h2>
+                <button onclick="cerrarModalIosInstall()" class="p-2 rounded-lg" style="background: rgba(0,0,0,0.05);" aria-label="Cerrar">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <ol class="space-y-3 text-sm" style="color: var(--fg); padding-left: 1.25rem;">
+                <li>Abre esta página en <strong>Safari</strong> (si usas otro navegador, copia la dirección y ábrela en Safari).</li>
+                <li>Toca el botón <strong>Compartir</strong>: el cuadrado con la flecha hacia arriba, en la barra inferior.</li>
+                <li>Desplázate y selecciona <strong>«Añadir a pantalla de inicio»</strong>.</li>
+                <li>Toca <strong>«Añadir»</strong>: la app quedará instalada con su icono, a pantalla completa y sin barra del navegador.</li>
+            </ol>
+            <div class="mt-4 p-3 rounded-lg text-xs" style="background: rgba(13, 115, 119, 0.1); color: var(--accent);">
+                Instalada, AACCEE Manager funciona como una aplicación nativa: arranque directo, pantalla completa y soporte sin conexión.
+            </div>
+            <button onclick="cerrarModalIosInstall()" class="btn btn-primary w-full mt-4">Entendido</button>
+        </div>
+    </div>
+
     <!-- Modal: Curso Escolar -->
     <div id="cursoModal" class="modal-overlay">
         <div class="modal p-6" style="max-width: 500px;">
@@ -4732,6 +4964,15 @@
             
             if (userRole && mobileUserRole) {
                 mobileUserRole.textContent = userRole.textContent;
+            }
+            
+            // Sincronizar el manual de uso del perfil en el menú móvil
+            // (paridad con el botón «Manual» de la cabecera de escritorio)
+            const manualBtn = document.getElementById('manualBtn');
+            const mobileManualBtn = document.getElementById('mobileManualBtn');
+            if (manualBtn && mobileManualBtn) {
+                mobileManualBtn.classList.toggle('hidden', manualBtn.classList.contains('hidden'));
+                mobileManualBtn.setAttribute('href', manualBtn.getAttribute('href') || '#');
             }
         }
         
@@ -6159,8 +6400,9 @@
             info.innerHTML = `<strong>${escapeHTML(curso.nombre)}</strong>: ${formatDate(curso.fechaInicio)} - ${formatDate(curso.fechaFin)} | ${numActividades} actividad${numActividades !== 1 ? 'es' : ''}`;
             info.classList.remove('hidden');
             
-            // Actualizar header
+            // Actualizar header (title: el texto puede truncarse en móvil)
             headerInfo.textContent = `📚 ${curso.nombre}`;
+            headerInfo.title = 'Curso escolar activo: ' + curso.nombre;
             headerInfo.classList.remove('hidden');
         }
         
@@ -6271,6 +6513,8 @@
             document.querySelectorAll('.nav-tab').forEach(tab => {
                 tab.addEventListener('click', () => {
                     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                    // Limpiar la selección táctil del cronograma al cambiar de pestaña
+                    if (typeof deseleccionarTagTouch === 'function') deseleccionarTagTouch();
                     tab.classList.add('active');
                     
                     document.querySelectorAll('.tab-content').forEach(content => {
@@ -7404,11 +7648,13 @@
             CURSOS.forEach(curso => {
                 const row = document.createElement('tr');
                 const colors = CURSO_COLORS[curso] || { bg: 'rgba(13, 115, 119, 0.05)', border: '#0d7377', header: 'rgba(13, 115, 119, 0.12)' };
-                row.innerHTML = `<td class="p-3 font-semibold" style="background: ${colors.header}; color: ${colors.border};">${curso}</td>`;
+                row.innerHTML = `<td data-label="Curso" class="p-3 font-semibold" style="background: ${colors.header}; color: ${colors.border};">${curso}</td>`;
                 
                 TRIMESTRES.forEach(trimestre => {
                     const cell = document.createElement('td');
                     cell.className = 'p-2';
+                    // Etiqueta del trimestre, visible en la vista apilada de móvil
+                    cell.dataset.label = trimestre;
                     
                     const cellContent = document.createElement('div');
                     cellContent.className = 'crono-cell';
@@ -7430,6 +7676,8 @@
                     cellContent.addEventListener('dragover', handleDragOver);
                     cellContent.addEventListener('dragleave', handleDragLeave);
                     cellContent.addEventListener('drop', handleDrop);
+                    // Táctil: tocar la celda de destino mueve la actividad seleccionada
+                    cellContent.addEventListener('click', handleCellTap);
                     
                     cell.appendChild(cellContent);
                     row.appendChild(cell);
@@ -7484,6 +7732,11 @@
             
             tag.addEventListener('dragstart', handleDragStart);
             tag.addEventListener('dragend', handleDragEnd);
+            
+            // Táctil: un toque selecciona la actividad para moverla (equivale
+            // al arrastre) y su barra inferior permite editarla (equivale al
+            // doble clic de escritorio)
+            tag.addEventListener('click', handleTagTap);
             
             // Doble clic para editar actividad
             tag.addEventListener('dblclick', () => {
@@ -7815,12 +8068,21 @@
             targetCell.classList.remove('drag-over');
             
             if (!draggedElement) return;
-            
-            const draggedId = draggedElement.dataset.id;
+            moverActividadEntreCeldas(draggedElement, targetCell);
+        }
+
+        /**
+         * Lógica común de movimiento de actividades: traslada la actividad de
+         * su celda origen a la celda destino, intercambiándola con la que
+         * ocupara la celda destino (si la hay). La usan tanto el Drag & Drop
+         * de escritorio como el modo táctil.
+         */
+        function moverActividadEntreCeldas(elemento, targetCell) {
+            const draggedId = elemento.dataset.id;
             const targetCurso = targetCell.dataset.curso;
             const targetTrimestre = targetCell.dataset.trimestre;
             
-            const sourceCell = draggedElement.parentElement;
+            const sourceCell = elemento.parentElement;
             const sourceCurso = sourceCell.dataset.curso;
             const sourceTrimestre = sourceCell.dataset.trimestre;
             
@@ -7847,6 +8109,93 @@
             saveToLocalStorage();
             renderCronograma();
             showToast('Actividad movida correctamente', 'success');
+        }
+
+        // ==================== TÁCTIL: MOVER SIN ARRASTRAR ====================
+        // El Drag & Drop de HTML5 no funciona con pantallas táctiles. En móvil
+        // se sustituye por «tocar la actividad» (queda seleccionada) y «tocar
+        // la celda de destino» (se mueve), con una barra inferior de acciones
+        // que también ofrece editar (equivale al doble clic de escritorio).
+        let touchSelectedTag = null;
+
+        function esDispositivoTactil() {
+            try {
+                // Móviles y tablets reales (iOS, Android, iPadOS)
+                if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) return true;
+                // Algunos WebViews de Android solo notifican pointer: coarse
+                if ((navigator.maxTouchPoints || 0) > 1 && window.matchMedia('(pointer: coarse)').matches) return true;
+                // Dispositivos que solo exponen hover:none con puntos táctiles
+                if (window.matchMedia('(hover: none)').matches && (navigator.maxTouchPoints || 0) > 0) return true;
+                return false;
+            } catch (err) {
+                return false;
+            }
+        }
+
+        function handleTagTap(e) {
+            // La papelera gestiona su propio click
+            if (e.target.closest('.activity-tag-delete')) return;
+            // En escritorio rigen el doble clic y el arrastre
+            if (!esDispositivoTactil()) return;
+            e.stopPropagation();
+            toggleSeleccionTouch(e.currentTarget);
+        }
+
+        function handleCellTap(e) {
+            if (!touchSelectedTag || !esDispositivoTactil()) return;
+            // Los toques sobre etiquetas los gestiona handleTagTap
+            if (e.target.closest('.activity-tag')) return;
+            moverActividadTouch(e.currentTarget);
+        }
+
+        function toggleSeleccionTouch(tag) {
+            if (touchSelectedTag === tag) {
+                deseleccionarTagTouch();
+                return;
+            }
+            deseleccionarTagTouch();
+            touchSelectedTag = tag;
+            tag.classList.add('tag-selected');
+            actualizarBarraTouch(tag);
+            showToast('Toca la celda de destino para mover la actividad', 'info');
+        }
+
+        function actualizarBarraTouch(tag) {
+            const barra = document.getElementById('cronoTouchBar');
+            const nombreEl = document.getElementById('touchBarNombre');
+            if (!barra || !nombreEl) return;
+            const act = appData.actividades.find(a => a.id === tag.dataset.id);
+            nombreEl.textContent = act ? act.nombre : 'Actividad';
+            barra.classList.remove('hidden');
+        }
+
+        function deseleccionarTagTouch() {
+            if (touchSelectedTag) {
+                touchSelectedTag.classList.remove('tag-selected');
+                touchSelectedTag = null;
+            }
+            const barra = document.getElementById('cronoTouchBar');
+            if (barra) barra.classList.add('hidden');
+        }
+
+        function moverActividadTouch(targetCell) {
+            if (!touchSelectedTag) return;
+            const tag = touchSelectedTag;
+            const sourceCell = tag.parentElement;
+            if (sourceCell === targetCell) {
+                // Tocar la propia celda de la actividad: solo deselecciona
+                deseleccionarTagTouch();
+                return;
+            }
+            deseleccionarTagTouch();
+            moverActividadEntreCeldas(tag, targetCell);
+        }
+
+        function touchBarEditar() {
+            if (!touchSelectedTag) return;
+            const id = touchSelectedTag.dataset.id;
+            deseleccionarTagTouch();
+            editActivityFromCrono(id);
         }
 
         // ==================== TRIMESTRES ====================
@@ -14788,20 +15137,21 @@ function generateResumenEE() {
     (function () {
         'use strict';
 
-        // Sin soporte de SW el chip permanece oculto (comportamiento degradado y seguro)
-        if (!('serviceWorker' in navigator)) {
-            console.warn('[SW] Service Worker no soportado en este navegador');
-            return;
-        }
-
-        // El registro requiere contexto seguro: HTTPS, localhost o file:// se omite
+        // El registro del SW exige contexto seguro (HTTPS, localhost...), pero
+        // la versión del chip debe resolverse en CUALQUIER contexto: en móvil
+        // es habitual entrar por HTTP en la red local (IP del centro), donde
+        // no hay Service Worker. Por eso NO se hace «return» aquí: el registro
+        // se omite más abajo y la versión se obtiene con las estrategias que
+        // no necesitan SW (caché + descarga de sw.js).
+        var soportaSW = 'serviceWorker' in navigator;
         var esContextoSeguro = location.protocol === 'https:' ||
             location.hostname === 'localhost' ||
             location.hostname === '127.0.0.1' ||
             location.protocol === 'chrome-extension:';
-        if (!esContextoSeguro) {
+        if (!soportaSW) {
+            console.warn('[SW] Service Worker no soportado en este navegador');
+        } else if (!esContextoSeguro) {
             console.warn('[SW] Registro omitido: se requiere HTTPS o localhost');
-            return;
         }
 
         // Prefijo de los caches de la app (coincide con CACHE_NAME en sw.js)
@@ -14840,7 +15190,7 @@ function generateResumenEE() {
 
         // Escucha el broadcast que emite el SW al activarse una versión nueva
         // (solo tiene efecto si el sw.js implementa el protocolo de mensajes)
-        navigator.serviceWorker.addEventListener('message', function (event) {
+        if (soportaSW) navigator.serviceWorker.addEventListener('message', function (event) {
             if (event.data && event.data.type === 'VERSION' && event.data.version) {
                 pintarVersion(event.data.version);
             }
@@ -14890,7 +15240,7 @@ function generateResumenEE() {
         // Lanza las estrategias en cascada (la 2 y la 3 son las que funcionan con
         // el sw.js actual, que no responde a mensajes)
         function resolverVersion() {
-            var sw = navigator.serviceWorker.controller;
+            var sw = soportaSW ? navigator.serviceWorker.controller : null;
             if (sw) pedirVersionPorMensaje(sw);
             pedirVersionPorCache();
             // Pequeña espera para dar prioridad a mensajes/caché antes de parsear
@@ -14938,10 +15288,22 @@ function generateResumenEE() {
                 });
         }
 
+        // Resolución de la versión en TODOS los contextos (con o sin SW, con o
+        // sin HTTPS): la estrategia 3 (descargar sw.js y leer CACHE_NAME)
+        // funciona también por HTTP en la red local del centro.
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initServiceWorker);
+            document.addEventListener('DOMContentLoaded', resolverVersion);
         } else {
-            initServiceWorker();
+            resolverVersion();
+        }
+
+        // El registro del SW solo procede con soporte y contexto seguro
+        if (soportaSW && esContextoSeguro) {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initServiceWorker);
+            } else {
+                initServiceWorker();
+            }
         }
     })();
 
@@ -14954,6 +15316,97 @@ function generateResumenEE() {
         var esOscuro = document.documentElement.getAttribute('data-theme') === 'dark';
         meta.setAttribute('content', esOscuro ? '#1a1a1a' : '#0d7377');
     }
+    </script>
+
+    <script>
+    // ==================== PWA: INSTALACIÓN EN CUALQUIER PLATAFORMA ====================
+    // - Escritorio (Chrome/Edge) y Android: beforeinstallprompt → botón
+    //   «Instalar» en el header y en el menú móvil.
+    // - iPadOS/iOS (Safari): no existe beforeinstallprompt; el botón abre la
+    //   guía («Compartir → Añadir a pantalla de inicio»).
+    // - Si ya está instalada (display-mode: standalone) no se muestra nada.
+    (function () {
+        'use strict';
+
+        var deferredPrompt = null;
+        var installBtn = document.getElementById('installBtn');
+        var mobileInstallBtn = document.getElementById('mobileInstallBtn');
+
+        function esStandalone() {
+            var m = window.matchMedia;
+            return (m && (m('(display-mode: standalone)').matches ||
+                         m('(display-mode: fullscreen)').matches ||
+                         m('(display-mode: minimal-ui)').matches)) ||
+                   window.navigator.standalone === true;
+        }
+
+        function esIOS() {
+            return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        }
+
+        function mostrarBotonesInstalar() {
+            if (esStandalone()) return;
+            if (installBtn) installBtn.classList.remove('hidden');
+            if (mobileInstallBtn) mobileInstallBtn.classList.remove('hidden');
+        }
+
+        function ocultarBotonesInstalar() {
+            if (installBtn) installBtn.classList.add('hidden');
+            if (mobileInstallBtn) mobileInstallBtn.classList.add('hidden');
+        }
+
+        window.addEventListener('beforeinstallprompt', function (e) {
+            // Evita el mini-infobar de Chrome: usamos nuestros propios botones
+            e.preventDefault();
+            deferredPrompt = e;
+            mostrarBotonesInstalar();
+            console.log('[PWA] Instalación disponible (beforeinstallprompt)');
+        });
+
+        window.addEventListener('appinstalled', function () {
+            deferredPrompt = null;
+            ocultarBotonesInstalar();
+            showToast('AACCEE Manager instalada en este dispositivo', 'success');
+        });
+
+        // iOS nunca dispara beforeinstallprompt: mostramos el botón con la guía
+        if (esIOS() && !esStandalone()) mostrarBotonesInstalar();
+
+        window.instalarApp = function () {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(function (choice) {
+                    console.log('[PWA] Elección del usuario:', choice.outcome);
+                    deferredPrompt = null;
+                }).catch(function () { deferredPrompt = null; });
+            } else if (esIOS()) {
+                window.abrirModalIosInstall();
+            } else {
+                showToast('Para instalarla: menú del navegador → «Instalar aplicación»', 'info');
+            }
+        };
+
+        window.abrirModalIosInstall = function () {
+            var modal = document.getElementById('iosInstallModal');
+            if (modal) modal.classList.add('active');
+        };
+
+        window.cerrarModalIosInstall = function () {
+            var modal = document.getElementById('iosInstallModal');
+            if (modal) modal.classList.remove('active');
+        };
+    })();
+
+    // ==================== ESTADO DE CONEXIÓN (uso real en móvil/tablet) ====================
+    // Avisa al perder conexión para que el profesorado sepa que los cambios
+    // quedan guardados en el dispositivo y se sincronizarán al reconectar.
+    window.addEventListener('offline', function () {
+        showToast('Sin conexión: los cambios se guardan en el dispositivo y se sincronizarán al reconectar', 'warning');
+    });
+    window.addEventListener('online', function () {
+        showToast('Conexión restaurada', 'success');
+    });
     </script>
 </body>
 </html>
