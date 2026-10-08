@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ace-villadiego-v2.27';
+const CACHE_NAME = 'ace-villadiego-v2.28';
 // Rutas RELATIVAS al propio sw.js: la app puede desplegarse en cualquier
 // subcarpeta (p. ej. iesvilladiego.github.io/<app>/ o su fork) sin invadir
 // el ámbito del portal ni cachear páginas ajenas.
@@ -77,6 +77,9 @@ self.addEventListener('fetch', event => {
   
   // Skip GitHub API calls (they need fresh data)
   if (event.request.url.includes('api.github.com')) return;
+  
+  if (event.request.url.includes('firebasedatabase.app')) return; // nuevo
+
   
   event.respondWith(
     fetch(event.request)
