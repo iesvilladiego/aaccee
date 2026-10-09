@@ -4540,7 +4540,7 @@
                             </svg>
                             <span class="font-semibold text-sm" style="color: var(--fg);">Configuración</span>
                         </div>
-                        <p class="text-xs mt-1" style="color: var(--muted);">Cursos escolares, trimestres, curso activo</p>
+                    <p class="text-xs mt-1" style="color: var(--muted);">Cursos, trimestres, unidades, enlaces y curso activo</p>
                     </div>
                 </label>
             </div>
@@ -8180,6 +8180,10 @@
             const reader = new FileReader();
             reader.onload = function(e) {
                 try {
+                    if (typeof XLSX === 'undefined') {
+                        showToast('La hoja de cálculo no se pudo cargar (librería Excel no disponible). Comprueba la conexión y recarga la página.', 'error');
+                        return;
+                    }
                     const data = new Uint8Array(e.target.result);
                     const workbook = XLSX.read(data, { type: 'array' });
                     const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -8239,6 +8243,9 @@
                     showToast('Error al leer el archivo Excel', 'error');
                     console.error(error);
                 }
+            };
+            reader.onerror = function() {
+                showToast('No se pudo leer el archivo Excel seleccionado', 'error');
             };
             reader.readAsArrayBuffer(file);
             event.target.value = '';
@@ -9009,10 +9016,17 @@
                     trimestres: appData?.config?.trimestres || {},
                     // Incluir configuración de unidades
                     unidadesDefecto: appData?.config?.unidadesDefecto || {},
-                    unidadesPorCurso: soloCursoActivo && cursoActivoId 
+                    unidadesPorCurso: soloCursoActivo && cursoActivoId
                         ? { [cursoActivoId]: appData?.config?.unidadesPorCurso?.[cursoActivoId] || null }
                         : (appData?.config?.unidadesPorCurso || {})
                 };
+
+                // Enlaces de normativa (ligados a los cursos escolares)
+                let enlacesExport = appData?.enlacesNormativa || [];
+                if (soloCursoActivo && cursoActivoId) {
+                    enlacesExport = enlacesExport.filter(e => e.cursoEscolarId === cursoActivoId);
+                }
+                dataToExport.enlacesNormativa = enlacesExport;
             }
             
             // Unidades (si no se incluyeron en config, se pueden exportar por separado)
@@ -9034,67 +9048,230 @@
             };
             
             // Generar y descargar archivo
-            const dataStr = JSON.stringify(dataToExport, null, 2);
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.href = url;
-            const sufijo = soloCursoActivo ? `_${getNombreCursoActivo().replace(/[/\\?%*:|"<>]/g, '-')}` : '';
-            a.download = `ACE_Villadiego${sufijo}_${formatDateTimeFile()}.json`;
-            a.click();
-            
-            URL.revokeObjectURL(url);
-            
-            // Cerrar modal y mostrar confirmación
-            cerrarModalExportar();
-            
-            const numItems = Object.keys(dataToExport).filter(k => k !== '_metadata').length;
-            showToast(`✅ Datos exportados correctamente (${numItems} secciones)`, 'success');
+            try {
+                const dataStr = JSON.stringify(dataToExport, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                // Sufijo solo si hay curso activo (evita "Sin curso seleccionado")
+                const cursoActivoParaNombre = soloCursoActivo ? getCursoActivoId() : null;
+                const sufijo = cursoActivoParaNombre ? `_${getNombreCursoActivo().replace(/[/\\?%*:|"<>]/g, '-')}` : '';
+                a.download = `ACE_Villadiego${sufijo}_${formatDateTimeFile()}.json`;
+                // Safari/iOS cancelan la descarga si el ancla no está en el
+                // documento o si la URL del blob se libera de inmediato
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+                // Cerrar modal y mostrar confirmación
+                cerrarModalExportar();
+
+                const numItems = Object.keys(dataToExport).filter(k => k !== '_metadata').length;
+                showToast(`✅ Datos exportados correctamente (${numItems} secciones)`, 'success');
+            } catch (error) {
+                console.error('Error al exportar:', error);
+                showToast('Error al generar el archivo de exportación: ' + (error.message || 'desconocido'), 'error');
+            }
         }
         
         /**
-        * Función legacy de exportación (se mantiene por compatibilidad, llama al modal)
+        * Importa un archivo JSON generado por la exportación de la aplicación
+        * FUSIONÁNDOLO con los datos actuales (no se pierde lo ya existente).
+        * Compatible con el formato actual (actividades EE/CC, profesorado,
+        * unidades, configuración y enlaces de normativa) y con el antiguo
+        * (config + actividades).
         */
         function importData(event) {
-            const file = event.target.files[0];
+            const input = event.target;
+            const file = input.files[0];
             if (!file) return;
-            
+
             const reader = new FileReader();
+            reader.onerror = function() {
+                showToast('No se pudo leer el archivo seleccionado', 'error');
+                input.value = '';
+            };
             reader.onload = function(e) {
                 try {
                     const imported = JSON.parse(e.target.result);
-                    
+
                     // Validar estructura básica del archivo importado
-                    if (!imported || typeof imported !== 'object') {
+                    if (!imported || typeof imported !== 'object' || Array.isArray(imported)) {
                         throw new Error('Estructura de archivo inválida');
                     }
-                    
-                    // Mezclar con valores por defecto para propiedades faltantes
-                    appData = {
-                        config: {
-                            trimestres: imported.config?.trimestres || { 
-                                t1: { start: '', end: '' }, 
-                                t2: { start: '', end: '' }, 
-                                t3: { start: '', end: '' } 
-                            },
-                            profesorado: imported.config?.profesorado || [],
-                            cursosEscolares: imported.config?.cursosEscolares || [],
-                            cursoEscolarActivo: imported.config?.cursoEscolarActivo || null
-                        },
-                        actividades: Array.isArray(imported.actividades) ? imported.actividades : []
-                    };
-                    
+
+                    const resumen = [];
+
+                    // ---- Actividades EE: fusión por id (la importada actualiza) ----
+                    if (Array.isArray(imported.actividades)) {
+                        imported.actividades.forEach(act => {
+                            if (!act || typeof act !== 'object' || !act.id) return;
+                            const idx = appData.actividades.findIndex(a => a.id === act.id);
+                            if (idx !== -1) {
+                                appData.actividades[idx] = act;
+                            } else {
+                                appData.actividades.push(act);
+                            }
+                        });
+                        resumen.push(`${imported.actividades.length} actividades EE`);
+                    }
+
+                    // ---- Actividades CC: fusión por id ----
+                    let ccImportadas = false;
+                    if (Array.isArray(imported.actividadesCC)) {
+                        imported.actividadesCC.forEach(act => {
+                            if (!act || typeof act !== 'object' || !act.id) return;
+                            const idx = actividadesCC.findIndex(a => a.id === act.id);
+                            if (idx !== -1) {
+                                actividadesCC[idx] = act;
+                            } else {
+                                actividadesCC.push(act);
+                            }
+                        });
+                        ccImportadas = true;
+                        resumen.push(`${imported.actividadesCC.length} actividades CC`);
+                    }
+
+                    // ---- Profesorado (sección del export) ----
+                    const profSeccion = imported.profesorado;
+                    if (profSeccion && typeof profSeccion === 'object') {
+                        if (profSeccion.tipo === 'curso_especifico' && profSeccion.cursoId && Array.isArray(profSeccion.profesores)) {
+                            appData.config.profesoradoPorCurso = appData.config.profesoradoPorCurso || {};
+                            const actuales = appData.config.profesoradoPorCurso[profSeccion.cursoId] || [];
+                            appData.config.profesoradoPorCurso[profSeccion.cursoId] = [
+                                ...actuales,
+                                ...profSeccion.profesores.filter(p => !actuales.includes(p))
+                            ];
+                            resumen.push(`${profSeccion.profesores.length} profesores`);
+                        } else if (profSeccion.tipo === 'todos_los_cursos' && profSeccion.profesoradoPorCurso && typeof profSeccion.profesoradoPorCurso === 'object') {
+                            appData.config.profesoradoPorCurso = appData.config.profesoradoPorCurso || {};
+                            Object.entries(profSeccion.profesoradoPorCurso).forEach(([cursoId, profesores]) => {
+                                if (!Array.isArray(profesores)) return;
+                                const actuales = appData.config.profesoradoPorCurso[cursoId] || [];
+                                appData.config.profesoradoPorCurso[cursoId] = [
+                                    ...actuales,
+                                    ...profesores.filter(p => !actuales.includes(p))
+                                ];
+                            });
+                            resumen.push('profesorado de todos los cursos');
+                        }
+                    }
+
+                    // ---- Configuración ----
+                    const cfg = imported.config || {};
+                    if (cfg.trimestres && typeof cfg.trimestres === 'object') {
+                        ['t1', 't2', 't3'].forEach(t => {
+                            const trimestreImportado = cfg.trimestres[t];
+                            if (trimestreImportado && typeof trimestreImportado === 'object') {
+                                appData.config.trimestres[t] = {
+                                    start: trimestreImportado.start || appData.config.trimestres[t]?.start || '',
+                                    end: trimestreImportado.end || appData.config.trimestres[t]?.end || ''
+                                };
+                            }
+                        });
+                    }
+                    if (Array.isArray(cfg.cursosEscolares) && cfg.cursosEscolares.length > 0) {
+                        cfg.cursosEscolares.forEach(curso => {
+                            if (!curso || !curso.id) return;
+                            const idx = appData.config.cursosEscolares.findIndex(c => c.id === curso.id);
+                            if (idx !== -1) {
+                                appData.config.cursosEscolares[idx] = curso;
+                            } else {
+                                appData.config.cursosEscolares.push(curso);
+                            }
+                        });
+                        resumen.push(`${cfg.cursosEscolares.length} cursos escolares`);
+                    }
+                    if (cfg.cursoEscolarActivo && appData.config.cursosEscolares.some(c => c.id === cfg.cursoEscolarActivo)) {
+                        appData.config.cursoEscolarActivo = cfg.cursoEscolarActivo;
+                    }
+                    if (Array.isArray(cfg.profesorado) && cfg.profesorado.length > 0) {
+                        const actualesLegacy = appData.config.profesorado || [];
+                        appData.config.profesorado = [...actualesLegacy, ...cfg.profesorado.filter(p => !actualesLegacy.includes(p))];
+                    }
+                    if (cfg.profesoradoPorCurso && typeof cfg.profesoradoPorCurso === 'object') {
+                        appData.config.profesoradoPorCurso = appData.config.profesoradoPorCurso || {};
+                        Object.entries(cfg.profesoradoPorCurso).forEach(([cursoId, profesores]) => {
+                            if (!Array.isArray(profesores)) return;
+                            const actuales = appData.config.profesoradoPorCurso[cursoId] || [];
+                            appData.config.profesoradoPorCurso[cursoId] = [
+                                ...actuales,
+                                ...profesores.filter(p => !actuales.includes(p))
+                            ];
+                        });
+                    }
+
+                    // ---- Unidades (sección propia del export y claves de config) ----
+                    const seccionUnidades = imported.unidades || {};
+                    const defectoImportado = seccionUnidades.defecto || cfg.unidadesDefecto;
+                    const porCursoImportado = seccionUnidades.porCurso || cfg.unidadesPorCurso;
+                    if (defectoImportado && typeof defectoImportado === 'object' && defectoImportado.cursos && defectoImportado.unidades) {
+                        appData.config.unidadesDefecto = defectoImportado;
+                    }
+                    if (porCursoImportado && typeof porCursoImportado === 'object') {
+                        appData.config.unidadesPorCurso = appData.config.unidadesPorCurso || {};
+                        Object.entries(porCursoImportado).forEach(([cursoId, conf]) => {
+                            if (conf && typeof conf === 'object') {
+                                appData.config.unidadesPorCurso[cursoId] = conf;
+                            }
+                        });
+                        resumen.push('unidades por curso');
+                    }
+
+                    // ---- Enlaces de normativa: fusión por id ----
+                    if (Array.isArray(imported.enlacesNormativa)) {
+                        appData.enlacesNormativa = Array.isArray(appData.enlacesNormativa) ? appData.enlacesNormativa : [];
+                        imported.enlacesNormativa.forEach(enlace => {
+                            if (!enlace || !enlace.id) return;
+                            const idx = appData.enlacesNormativa.findIndex(x => x.id === enlace.id);
+                            if (idx !== -1) {
+                                appData.enlacesNormativa[idx] = enlace;
+                            } else {
+                                appData.enlacesNormativa.push(enlace);
+                            }
+                        });
+                        resumen.push(`${imported.enlacesNormativa.length} enlaces de normativa`);
+                    }
+
+                    if (resumen.length === 0) {
+                        throw new Error('el archivo no contiene secciones reconocibles (actividades, profesorado, unidades o configuración)');
+                    }
+
+                    // Normalizar estructuras y ejecutar migraciones
+                    if (!appData.config.unidadesPorCurso) appData.config.unidadesPorCurso = {};
+                    if (!appData.config.unidadesDefecto) {
+                        appData.config.unidadesDefecto = {
+                            cursos: ['1º ESO', '2º ESO', '3º ESO', '4º ESO'],
+                            unidades: ['1º A', '1º B', '2º A', '2º B', '3º A', '3º B', '4º A', '4º B']
+                        };
+                    }
+                    if (!Array.isArray(appData.enlacesNormativa)) appData.enlacesNormativa = [];
+                    migrarDatosAntiguos();
+
+                    // Guardar (local + nube) y refrescar toda la interfaz
                     saveToLocalStorage();
+                    if (ccImportadas) {
+                        guardarActividadesCC();
+                    }
                     renderAll();
-                    showToast('Datos importados correctamente', 'success');
+                    if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
+                    if (typeof inicializarImportacionCursoAnterior === 'function') inicializarImportacionCursoAnterior();
+                    if (typeof cargarCursosAnterioresCC === 'function') cargarCursosAnterioresCC();
+
+                    showToast(`Datos importados correctamente (${resumen.join(', ')})`, 'success');
                 } catch (error) {
                     console.error('Error al importar:', error);
                     showToast('Error al importar: ' + (error.message || 'archivo inválido'), 'error');
+                } finally {
+                    // Permite reimportar el mismo archivo después
+                    input.value = '';
                 }
             };
             reader.readAsText(file);
-            event.target.value = '';
         }
 
         // ==================== FIREBASE INTEGRATION ====================
@@ -9276,6 +9453,10 @@
             const reader = new FileReader();
             reader.onload = function(e) {
                 try {
+                    if (typeof XLSX === 'undefined') {
+                        showToast('La hoja de cálculo no se pudo cargar (librería Excel no disponible). Comprueba la conexión y recarga la página.', 'error');
+                        return;
+                    }
                     const data = new Uint8Array(e.target.result);
                     const workbook = XLSX.read(data, { type: 'array' });
                     
@@ -9289,21 +9470,24 @@
                         range: 3 // Empezar desde la fila 4 (índice 3)
                     });
                     
-                    // Filtrar filas vacías y procesar datos
+                    // Normalizar celdas a texto (Excel devuelve números en
+                    // celdas numéricas y rompía .trim()) y filtrar filas vacías
+                    const celda = valor => (valor === undefined || valor === null) ? '' : String(valor).trim();
+
                     actividadesPendientesImportacion = jsonData
-                        .filter(row => row.Actividad && row.Actividad.trim() && row.Nivel)
-                        .map((row, index) => ({
-                            id: 'import_' + index,
-                            nombre: row.Actividad.trim(),
-                            curso: row.Nivel ? row.Nivel.trim() : '',
-                            trimestre: row.Trimestre ? row.Trimestre.trim() : '',
+                        .map(row => ({
+                            nombre: celda(row.Actividad),
+                            curso: celda(row.Nivel),
+                            trimestre: celda(row.Trimestre),
                             departamentos: [
-                                row.Departamento1 ? row.Departamento1.trim() : '',
-                                row.Departamento2 ? row.Departamento2.trim() : '',
-                                row.Departamento3 ? row.Departamento3.trim() : ''
+                                celda(row.Departamento1),
+                                celda(row.Departamento2),
+                                celda(row.Departamento3)
                             ].filter(d => d !== ''), // Filtrar vacíos
                             seleccionada: true // Por defecto seleccionada
-                        }));
+                        }))
+                        .filter(row => row.nombre && row.curso)
+                        .map((row, index) => ({ id: 'import_' + index, ...row }));
                     
                     if (actividadesPendientesImportacion.length === 0) {
                         showToast('No se encontraron actividades válidas en el Excel', 'warning');
@@ -9320,6 +9504,9 @@
                     console.error('Error al procesar el archivo Excel:', error);
                     showToast('Error al leer el archivo Excel. Verifica el formato.', 'error');
                 }
+            };
+            reader.onerror = function() {
+                showToast('No se pudo leer el archivo Excel seleccionado', 'error');
             };
             reader.readAsArrayBuffer(file);
         }
@@ -9410,10 +9597,10 @@
             
             seleccionadas.forEach(act => {
                 // Verificar si ya existe una actividad igual (mismo curso, trimestre y nombre)
-                const existe = appData.actividades.some(a => 
-                    a.curso === act.curso && 
-                    a.trimestre === act.trimestre && 
-                    a.nombre.toLowerCase() === act.nombre.toLowerCase() &&
+                const existe = appData.actividades.some(a =>
+                    a.curso === act.curso &&
+                    a.trimestre === act.trimestre &&
+                    String(a.nombre || '').toLowerCase() === act.nombre.toLowerCase() &&
                     a.cursoEscolarId === appData.config.cursoEscolarActivo
                 );
                 
@@ -9474,6 +9661,11 @@
         
         // Variable global para almacenar las actividades del curso anterior
         let actividadesCursoAnterior = [];
+
+        // Copia de las actividades VISIBLES (tras aplicar filtros): los
+        // índices de la interfaz se refieren a esta lista y no al array
+        // completo, para importar exactamente lo que el usuario seleccionó
+        let actividadesCursoAnteriorRenderizadas = [];
         
         /**
          * Inicializa el selector de cursos anteriores
@@ -9591,6 +9783,10 @@
          */
         function renderizarListaActividadesCursoAnterior(actividades) {
             const lista = document.getElementById('listaActividadesCursoAnterior');
+
+            // Sincronizar la copia visible: los índices de la interfaz y la
+            // importación siempre hacen referencia a lo que se muestra
+            actividadesCursoAnteriorRenderizadas = actividades || [];
             
             if (!actividades || actividades.length === 0) {
                 lista.innerHTML = '<p class="text-sm text-center py-4" style="color: var(--muted);">No hay actividades en este curso escolar</p>';
@@ -9621,7 +9817,7 @@
                                id="act_ca_${index}" 
                                class="mt-1 w-5 h-5 rounded border-2 flex-shrink-0"
                                style="accent-color: ${color};"
-                               onclick="event.stopPropagation(); toggleSeleccionActividadCursoAnterior(${index})">
+                               onclick="event.stopPropagation(); marcarCheckboxCursoAnterior(${index})">
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 flex-wrap">
                                 <span class="font-semibold text-sm">${escapeHTML(act.nombre || 'Sin nombre')}</span>
@@ -9648,24 +9844,45 @@
         }
         
         /**
-         * Toggle selección de una actividad individual
-         * @param {number} index - Índice de la actividad en el array
+         * Toggle selección de una actividad individual (clic en la fila)
+         * @param {number} index - Índice de la actividad en la lista RENDERIZADA
          */
         function toggleSeleccionActividadCursoAnterior(index) {
             const checkbox = document.getElementById(`act_ca_${index}`);
-            const item = checkbox.closest('.actividad-curso-anterior-item');
-            
-            if (checkbox.checked) {
-                checkbox.checked = false;
-                item.style.opacity = '0.6';
-                item.style.transform = 'scale(0.98)';
-            } else {
-                checkbox.checked = true;
-                item.style.opacity = '1';
-                item.style.transform = 'scale(1)';
-            }
-            
+            if (!checkbox) return;
+
+            // La fila invierte el estado del checkbox; el clic directo sobre
+            // el checkbox sincroniza en marcarCheckboxCursoAnterior (evita
+            // el doble cambio que anulaba la selección)
+            checkbox.checked = !checkbox.checked;
+            aplicarEstiloSeleccionCursoAnterior(checkbox);
             actualizarContadorSeleccionadasCursoAnterior();
+        }
+
+        /**
+         * Sincroniza la interfaz tras pulsar directamente el checkbox: el
+         * navegador ya cambió su estado antes de este evento, por lo que
+         * solo hay que reflejar el estilo y actualizar el contador.
+         * @param {number} index - Índice de la actividad en la lista RENDERIZADA
+         */
+        function marcarCheckboxCursoAnterior(index) {
+            const checkbox = document.getElementById(`act_ca_${index}`);
+            if (!checkbox) return;
+
+            aplicarEstiloSeleccionCursoAnterior(checkbox);
+            actualizarContadorSeleccionadasCursoAnterior();
+        }
+
+        /**
+         * Aplica el estilo visual de selección según el estado del checkbox
+         * @param {HTMLInputElement} checkbox - Checkbox de la actividad
+         */
+        function aplicarEstiloSeleccionCursoAnterior(checkbox) {
+            const item = checkbox.closest('.actividad-curso-anterior-item');
+            if (!item) return;
+
+            item.style.opacity = checkbox.checked ? '1' : '0.6';
+            item.style.transform = checkbox.checked ? 'scale(1)' : 'scale(0.98)';
         }
         
         /**
@@ -9674,20 +9891,18 @@
         function seleccionarTodasCursoAnterior() {
             document.querySelectorAll('#listaActividadesCursoAnterior input[type="checkbox"]').forEach(cb => {
                 cb.checked = true;
-                cb.closest('.actividad-curso-anterior-item').style.opacity = '1';
-                cb.closest('.actividad-curso-anterior-item').style.transform = 'scale(1)';
+                aplicarEstiloSeleccionCursoAnterior(cb);
             });
             actualizarContadorSeleccionadasCursoAnterior();
         }
-        
+
         /**
          * Deselecciona todas las actividades
          */
         function deseleccionarTodasCursoAnterior() {
             document.querySelectorAll('#listaActividadesCursoAnterior input[type="checkbox"]').forEach(cb => {
                 cb.checked = false;
-                cb.closest('.actividad-curso-anterior-item').style.opacity = '0.6';
-                cb.closest('.actividad-curso-anterior-item').style.transform = 'scale(0.98)';
+                aplicarEstiloSeleccionCursoAnterior(cb);
             });
             actualizarContadorSeleccionadasCursoAnterior();
         }
@@ -9754,8 +9969,13 @@
             document.querySelectorAll('#listaActividadesCursoAnterior input[type="checkbox"]:checked').forEach(cb => {
                 const item = cb.closest('.actividad-curso-anterior-item');
                 const index = parseInt(item.dataset.index);
-                if (actividadesCursoAnterior[index]) {
-                    seleccionadas.push(actividadesCursoAnterior[index]);
+                // Se resuelve sobre la lista RENDERIZADA (la visible tras
+                // aplicar filtros): con filtros activos los índices no
+                // coinciden con el array completo y se importarían
+                // actividades equivocadas
+                const actividad = actividadesCursoAnteriorRenderizadas[index];
+                if (actividad) {
+                    seleccionadas.push(actividad);
                 }
             });
             
@@ -9778,7 +9998,7 @@
                     cursoEscolarId: cursoActivoId,
                     curso: actOriginal.curso,
                     trimestre: actOriginal.trimestre, // Se conserva el trimestre
-                    nombre: actOriginal.nombre,
+                    nombre: actOriginal.nombre || '',
                     descripcion: actOriginal.descripcion || '',
                     departamentos: actOriginal.departamentos ? [...actOriginal.departamentos] : [],
                     organizador: actOriginal.organizador || '',
@@ -9790,11 +10010,11 @@
                 };
                 
                 // Verificar si ya existe una igual (mismo curso, trimestre y nombre)
-                const existe = appData.actividades.some(a => 
+                const existe = appData.actividades.some(a =>
                     a.cursoEscolarId === cursoActivoId &&
                     a.curso === nuevaActividad.curso &&
                     a.trimestre === nuevaActividad.trimestre &&
-                    a.nombre.toLowerCase() === nuevaActividad.nombre.toLowerCase()
+                    String(a.nombre || '').toLowerCase() === String(nuevaActividad.nombre || '').toLowerCase()
                 );
                 
                 if (!existe) {
@@ -11283,10 +11503,14 @@ function renderizarListaCC() {
                                 ? `Publicada el ${new Date(act.fechaPublicacionCalendar).toLocaleDateString('es-ES', {day: 'numeric', month: 'short', year: 'numeric'})}`
                                 : 'Publicar esta actividad en Google Calendar';
                             
-                            return `<button onclick="publicarEnGoogleCalendarCC(${escapeJSAttr(act.nombre)}, ${escapeJSAttr(act.fecha)}, ${escapeJSAttr(act.descripcion || '')}, ${escapeJSAttr(act.unidad)}, ${escapeJSAttr(act.id)})"
-                                    class="px-3 py-2 rounded-lg text-xs font-medium transition-all hover:scale-105 flex items-center gap-2 ${opacidadBtn}"
-                                    style="background: linear-gradient(135deg, #4285f4 0%, #34a853 100%); color: white;"
-                                    title="${tituloBtn}">
+                            const sinFecha = !act.fecha;
+                            const onclickBtn = sinFecha
+                                ? 'disabled title="Asigna primero una fecha a esta actividad"'
+                                : `onclick="publicarEnGoogleCalendarCC(${escapeJSAttr(act.nombre)}, ${escapeJSAttr(act.fecha)}, ${escapeJSAttr(act.descripcion || '')}, ${escapeJSAttr(act.unidad)}, ${escapeJSAttr(act.id)})" title="${escapeAttr(tituloBtn)}"`;
+
+                            return `<button ${onclickBtn}
+                                    class="px-3 py-2 rounded-lg text-xs font-medium transition-all hover:scale-105 flex items-center gap-2 ${opacidadBtn}${sinFecha ? ' opacity-50 cursor-not-allowed' : ''}"
+                                    style="background: linear-gradient(135deg, #4285f4 0%, #34a853 100%); color: white;">
                                 ${iconoSvg}
                                 ${textoBtn}
                             </button>`;
@@ -12452,11 +12676,11 @@ function cargarActividadesCCAnteriores() {
                  style="background: var(--bg);">
                 <input type="checkbox" 
                        class="cc-import-checkbox mt-1 w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
-                       data-nombre="${escapeHTML(act.nombre)}"
-                       data-unidad="${escapeHTML(act.unidad)}"
-                       data-descripcion="${escapeHTML(act.descripcion || '')}"
-                       data-fecha="${act.fecha || ''}"
-                       data-horas='${JSON.stringify(act.horas || [])}'
+                       data-nombre="${escapeAttr(act.nombre)}"
+                       data-unidad="${escapeAttr(act.unidad)}"
+                       data-descripcion="${escapeAttr(act.descripcion || '')}"
+                       data-fecha="${escapeAttr(act.fecha || '')}"
+                       data-horas="${escapeAttr(JSON.stringify(act.horas || []))}"
                        onchange="actualizarContadorCCImport()">
                 <div class="flex-1 min-w-0">
                     <div class="font-medium text-sm" style="color: var(--primary);">${escapeHTML(act.nombre)}</div>
@@ -12565,6 +12789,19 @@ function importarActividadesCCSeleccionadas() {
                 importadaDeCurso: cursoOrigenId // Marcar como importada
             };
             
+            // Evitar duplicados: la misma actividad (nombre y unidad) ya
+            // presente en el curso activo (p. ej. importación repetida)
+            const esDuplicada = actividadesCC.some(a =>
+                a.cursoEscolarId === cursoActivoId &&
+                String(a.nombre || '').toLowerCase() === String(nuevaActividad.nombre || '').toLowerCase() &&
+                (a.unidad || '') === (nuevaActividad.unidad || '')
+            );
+
+            if (esDuplicada) {
+                duplicadas++;
+                return;
+            }
+
             // Añadir al array de actividades CC
             actividadesCC.push(nuevaActividad);
             importadas++;
@@ -12585,6 +12822,9 @@ function importarActividadesCCSeleccionadas() {
         
         // Mostrar resultado
         let mensaje = `✅ Importación CC completada: ${importadas} actividad${importadas !== 1 ? 'es' : ''} importada${importadas !== 1 ? 's' : ''} (sin fecha - asigna manualmente)`;
+        if (duplicadas > 0) {
+            mensaje += `, ${duplicadas} duplicada${duplicadas !== 1 ? 's' : ''} omitida${duplicadas !== 1 ? 's' : ''}`;
+        }
         if (errores > 0) {
             mensaje += `, ${errores} error${errores !== 1 ? 'es' : ''}`;
         }
@@ -13189,6 +13429,53 @@ function actualizarListaSemanaCC(inicio, fin) {
 }
 
 /**
+ * Acorta un texto a una longitud máxima para que la URL del evento no
+ * supere el tamaño que Google Calendar acepta (las descripciones muy
+ * largas provocan que se descarten parámetros del enlace).
+ * @param {string} texto - Texto original
+ * @param {number} maximo - Longitud máxima (por defecto 1500 caracteres)
+ * @returns {string} Texto acotado con elipsis si es necesario
+ */
+function acotarTextoCalendar(texto, maximo = 1500) {
+    const limpio = String(texto || '');
+    if (limpio.length <= maximo) return limpio;
+    return limpio.slice(0, maximo - 1).trimEnd() + '…';
+}
+
+/**
+ * Abre el enlace de Google Calendar de forma robusta en cualquier
+ * dispositivo: ventana emergente en escritorio, pestaña nueva en móvil
+ * (donde las ventanas emergentes no son viables) y reintento mediante un
+ * enlace sintético si el navegador bloquea la apertura.
+ * @param {string} url - URL del evento a abrir
+ */
+function abrirEnlaceCalendar(url) {
+    const esMovil = (typeof esDispositivoTactil === 'function' && esDispositivoTactil()) ||
+                    window.matchMedia('(max-width: 768px)').matches;
+    let win = null;
+
+    if (!esMovil) {
+        try {
+            win = window.open(url, '_blank', 'noopener,width=820,height=700,scrollbars=yes,resizable=yes');
+        } catch (e) {
+            win = null;
+        }
+    }
+
+    if (!win || win.closed) {
+        // Móvil o ventana bloqueada: pestaña nueva mediante un enlace
+        // temporal (respeta el gesto del usuario y no se bloquea)
+        const enlace = document.createElement('a');
+        enlace.href = url;
+        enlace.target = '_blank';
+        enlace.rel = 'noopener noreferrer';
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+    }
+}
+
+/**
  * Publica una actividad CC en Google Calendar
  * Abre una nueva ventana con el formulario de creación de evento
  * @param {string} nombre - Nombre de la actividad
@@ -13200,39 +13487,48 @@ function publicarEnGoogleCalendarCC(nombre, fecha, descripcion, unidad, activida
     // ID del calendario de Google proporcionado
     const calendarId = 'c_8552a28d752bc8958843174c8f18cff430ca7277891f77e6d3f34572c7109648@group.calendar.google.com';
     
-    // Formatear fechas para Google Calendar (formato: YYYYMMDDTHHMMSSZ/YYYYMMDDTHHMMSSZ)
+    // Validar la fecha: sin fecha válida el evento no se puede crear
     const fechaObj = new Date(fecha + 'T00:00:00');
-    const fechaInicio = formatDateUniversal(fechaObj);
-    
+    if (!fecha || isNaN(fechaObj.getTime())) {
+        showToast('La actividad no tiene una fecha válida: asígnala antes de publicarla en Google Calendar', 'warning');
+        return;
+    }
+
+    // Evento de todo el día: el enlace de Google Calendar exige las fechas
+    // en formato compacto YYYYMMDD/YYYYMMDD (fin excluyente); con guiones
+    // el parámetro "dates" se descarta y el evento se abriría sin fecha
+    const fechaInicio = formatDateUniversal(fechaObj, '');
+
     // El evento dura todo el día (fin = inicio + 1 día)
     const fechaFinObj = new Date(fechaObj);
     fechaFinObj.setDate(fechaFinObj.getDate() + 1);
-    const fechaFin = formatDateUniversal(fechaFinObj);
-    
+    const fechaFin = formatDateUniversal(fechaFinObj, '');
+
     // Construir descripción completa
     let detalles = `Unidad: ${unidad}`;
     if (descripcion && descripcion.trim()) {
         detalles += `\n\n${descripcion}`;
     }
     detalles += `\n\n---\nCreado desde AACCEE Manager - IES Virgen de Villadiego`;
-    
-    // Codificar parámetros para URL
+
+    // Codificar parámetros para URL (descripción acotada para no exceder
+    // el tamaño máximo de URL que acepta Google Calendar)
     const tituloEncoded = encodeURIComponent(nombre);
-    const detallesEncoded = encodeURIComponent(detalles);
+    const detallesEncoded = encodeURIComponent(acotarTextoCalendar(detalles));
     const ubicacionEncoded = encodeURIComponent('IES Virgen de Villadiego');
-    
+
     // Construir URL de Google Calendar para crear evento
     const url = `https://calendar.google.com/calendar/r/eventedit?` +
         `text=${tituloEncoded}` +
         `&dates=${fechaInicio}/${fechaFin}` +
         `&details=${detallesEncoded}` +
         `&location=${ubicacionEncoded}` +
-        `&sprop=&sprop=name:` +
         `&sf=true&output=xml` +
         `&add=${encodeURIComponent(calendarId)}`;
-    
-    // Abrir en nueva ventana
-    window.open(url, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
+
+    // Abrir Google Calendar: ventana propia en escritorio, pestaña en móvil
+    // y reintento mediante enlace sintético si se bloquea la ventana
+    abrirEnlaceCalendar(url);
     
     // Marcar como publicada si tenemos el ID de la actividad
     if (actividadId) {
@@ -13270,16 +13566,24 @@ function publicarEnGoogleCalendarCC(nombre, fecha, descripcion, unidad, activida
 function publicarEnGoogleCalendarEE(nombre, fecha, descripcion, curso, trimestre) {
     // ID del calendario de Google proporcionado
     const calendarId = 'c_8552a28d752bc8958843174c8f18cff430ca7277891f77e6d3f34572c7109648@group.calendar.google.com';
-    
-    // Formatear fechas para Google Calendar
+
+    // Validar la fecha: sin fecha válida el evento no se puede crear
     const fechaObj = new Date(fecha + 'T00:00:00');
-    const fechaInicio = formatDateUniversal(fechaObj);
-    
+    if (!fecha || isNaN(fechaObj.getTime())) {
+        showToast('La actividad no tiene una fecha válida: asígnala antes de publicarla en Google Calendar', 'warning');
+        return;
+    }
+
+    // Evento de todo el día: el enlace de Google Calendar exige las fechas
+    // en formato compacto YYYYMMDD/YYYYMMDD (fin excluyente); con guiones
+    // el parámetro "dates" se descarta y el evento se abriría sin fecha
+    const fechaInicio = formatDateUniversal(fechaObj, '');
+
     // El evento dura todo el día (fin = inicio + 1 día)
     const fechaFinObj = new Date(fechaObj);
     fechaFinObj.setDate(fechaFinObj.getDate() + 1);
-    const fechaFin = formatDateUniversal(fechaFinObj);
-    
+    const fechaFin = formatDateUniversal(fechaFinObj, '');
+
     // Construir descripción completa
     let detalles = `Tipo: Actividad Extraescolar (EE)\n`;
     if (curso) detalles += `Curso: ${curso}\n`;
@@ -13288,31 +13592,28 @@ function publicarEnGoogleCalendarEE(nombre, fecha, descripcion, curso, trimestre
         detalles += `\n${descripcion}`;
     }
     detalles += `\n\n---\nCreado desde AACCEE Manager - IES Virgen de Villadiego`;
-    
-    // Codificar parámetros para URL
+
+    // Codificar parámetros para URL (descripción acotada para no exceder
+    // el tamaño máximo de URL que acepta Google Calendar)
     const tituloEncoded = encodeURIComponent(`[EE] ${nombre}`);
-    const detallesEncoded = encodeURIComponent(detalles);
+    const detallesEncoded = encodeURIComponent(acotarTextoCalendar(detalles));
     const ubicacionEncoded = encodeURIComponent('IES Virgen de Villadiego');
-    
+
     // Construir URL de Google Calendar para crear evento
     const url = `https://calendar.google.com/calendar/r/eventedit?` +
         `text=${tituloEncoded}` +
         `&dates=${fechaInicio}/${fechaFin}` +
         `&details=${detallesEncoded}` +
         `&location=${ubicacionEncoded}` +
-        `&sprop=&sprop=name:` +
         `&sf=true&output=xml` +
         `&add=${encodeURIComponent(calendarId)}`;
-    
-    // Abrir en nueva ventana
-    window.open(url, '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
-    
+
+    // Abrir Google Calendar: ventana propia en escritorio, pestaña en móvil
+    // y reintento mediante enlace sintético si se bloquea la ventana
+    abrirEnlaceCalendar(url);
+
     // Mostrar confirmación
-    if (typeof mostrarToast === 'function') {
-        showToast('Abriendo Google Calendar para publicar la actividad EE...', 'success');
-    } else if (typeof showToast === 'function') {
-        showToast('Abriendo Google Calendar para publicar la actividad EE...', 'success');
-    }
+    showToast('Abriendo Google Calendar para publicar la actividad EE...', 'success');
 }
 
 // ==================== INFORMES DE ACTIVIDADES CC ====================
