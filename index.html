@@ -479,10 +479,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        .stagger-1 { animation-delay: 0.1s; }
-        .stagger-2 { animation-delay: 0.2s; }
-        .stagger-3 { animation-delay: 0.3s; }
-
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after {
                 animation-duration: 0.01ms !important;
@@ -614,12 +610,6 @@
         }
 
         /* User Management Panel */
-        .user-management-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1.5rem;
-        }
 
         .user-card {
             background: var(--bg);
@@ -1201,10 +1191,6 @@
                 gap: 1.25rem;
             }
             
-            .crono-table {
-                font-size: 0.8rem;
-            }
-            
             .crono-cell {
                 min-height: 80px;
                 padding: 0.5rem;
@@ -1335,11 +1321,6 @@
                 padding: 0 1rem;
             }
             
-            .crono-table {
-                min-width: 600px;
-                font-size: 0.75rem;
-            }
-            
             .crono-cell {
                 min-height: 90px;
                 padding: 0.5rem;
@@ -1463,21 +1444,6 @@
                 justify-content: flex-end;
             }
             
-            .informe-filters {
-                flex-direction: column;
-            }
-            
-            .informe-filters > div {
-                width: 100%;
-            }
-            
-            .table-wrapper {
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-                margin: 0 -1rem;
-                padding: 0 1rem;
-            }
-            
             table {
                 min-width: 500px;
                 font-size: 0.8rem;
@@ -1504,18 +1470,10 @@
                 font-size: 0.9rem !important;
             }
             
-            footer, 
-            .info-section {
+            footer {
                 padding: 1.5rem 1rem !important;
             }
             
-            .hide-mobile {
-                display: none !important;
-            }
-            
-            .show-mobile {
-                display: block !important;
-            }
         }
         
         @media (max-width: 480px) {
@@ -1596,10 +1554,6 @@
         }
         
         @media print {
-            .no-print {
-                display: none !important;
-            }
-            
             body {
                 background: white !important;
                 color: black !important;
@@ -1609,10 +1563,6 @@
                 box-shadow: none !important;
                 border: 1px solid #ccc !important;
                 break-inside: avoid;
-            }
-            
-            .crono-table {
-                font-size: 10pt !important;
             }
             
             .activity-tag {
@@ -1627,10 +1577,6 @@
             .splash-logo,
             .user-avatar {
                 image-rendering: -webkit-optimize-contrast;
-            }
-            
-            border {
-                border-width: 0.5px;
             }
         }
         
@@ -1748,7 +1694,6 @@
         .accordion-content,
         .modal,
         .mobile-nav-panel,
-        .table-wrapper,
         .crono-wrapper,
         #cursosList {
             -webkit-overflow-scrolling: touch;
@@ -2501,8 +2446,6 @@
                             </div>
                         </div>
                     </div>
-
-
 
                     <!-- Import/Export - Acordeón -->
                     <div class="card overflow-hidden">
@@ -3675,7 +3618,7 @@
                         <div class="p-6 space-y-4">
                             <p class="text-sm" style="color: var(--muted);">Arrastra las etiquetas entre celdas para reorganizar las actividades. En pantallas táctiles: toca una actividad y luego la celda de destino.</p>
                             <div class="crono-wrapper overflow-x-auto">
-                                <table id="cronogramaTable" class="w-full border-collapse cronograma-table">
+                                <table id="cronogramaTable" class="w-full border-collapse">
                                     <thead>
                                         <tr>
                                             <th class="p-3 text-left font-semibold" style="background: rgba(13, 115, 119, 0.1);">Curso</th>
@@ -4331,8 +4274,6 @@
         </main>
     </div>
 
-
-
     <!-- Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
 
@@ -4957,7 +4898,7 @@
             const mobileUserRole = document.getElementById('mobileUserRole');
             const mobileUserAvatar = document.getElementById('mobileUserAvatar');
             
-            if (userName && mobileUserName) {
+            if (userName && mobileUserName && mobileUserAvatar) {
                 mobileUserName.textContent = userName.textContent;
                 mobileUserAvatar.textContent = userName.textContent.charAt(0).toUpperCase();
             }
@@ -5015,6 +4956,21 @@
                 .replace(/'/g, '&#39;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
+        }
+
+        /**
+         * Escapa un valor para incrustarlo como literal de cadena JS dentro de
+         * un atributo HTML (p. ej. onclick="fn(${escapeJSAttr(x)})").
+         * JSON.stringify resuelve la capa JS (comillas, saltos de línea y
+         * caracteres de control) y escapeAttr la capa HTML del atributo.
+         * A diferencia de escapeHTML, sobrevive a nombres con apóstrofes
+         * ("O'Brien") o descripciones multilínea dentro de onclick.
+         * @param {string} text - Texto a escapar
+         * @returns {string} - Literal seguro para atributos con código JS
+         */
+        function escapeJSAttr(text) {
+            if (text === undefined || text === null) text = '';
+            return escapeAttr(JSON.stringify(String(text)));
         }
 
         // ==================== DATA STORE ====================
@@ -5081,12 +5037,10 @@
         const TRIMESTRES = ['Primer Trimestre', 'Segundo Trimestre', 'Tercer Trimestre'];
 
         let editingActividadId = null;
-        let syncInterval = null;
         let draggedElement = null;
 
         // ==================== INITIALIZATION ====================
         document.addEventListener('DOMContentLoaded', async () => {
-            console.log('[INIT] DOMContentLoaded - Iniciando aplicación...');
             
             loadFromLocalStorage();
             
@@ -5103,9 +5057,7 @@
                 });
                 return;
             }
-            
-            console.log('[INIT] Elementos DOM encontrados correctamente');
-            
+
             // Inicializar tema y registrar su toggle SIEMPRE (antes de cualquier return),
             // para que el botón de modo oscuro funcione también con sesión guardada.
             // dataset.bound evita registrar el listener más de una vez.
@@ -5126,7 +5078,6 @@
                     // Actualizar el color de la barra del navegador/nativa al alternar el tema
                     if (typeof actualizarThemeColorMeta === 'function') actualizarThemeColorMeta();
                 });
-                console.log('[INIT] Theme toggle inicializado');
             }
             
             // Mostrar estado de carga mientras se cargan usuarios
@@ -5137,14 +5088,8 @@
             
             // Esperar a que los usuarios se carguen completamente (localStorage + Firebase)
             try {
-                console.log('[INIT] Esperando carga de usuarios...');
                 await loadUsersFromStorage();
-                console.log('[INIT] Usuarios cargados:', usersData.length, 'usuarios');
                 
-                // Debug: mostrar usuarios disponibles
-                usersData.forEach(u => {
-                    console.log(`[INIT] - Usuario: ${u.username} (activo: ${u.activo}, rol: ${u.rol})`);
-                });
                 
             } catch (error) {
                 console.error('[INIT] Error cargando usuarios:', error);
@@ -5155,23 +5100,19 @@
             if (loginBtn) {
                 loginBtn.disabled = false;
                 loginBtn.textContent = 'Iniciar Sesión';
-                console.log('[INIT] Botón de login habilitado');
             }
             
             // Verificar si hay sesión activa
             const savedSession = localStorage.getItem('aaccee_session');
-            console.log('[INIT] Verificando sesión guardada:', savedSession ? 'existe' : 'no existe');
             
             if (savedSession) {
                 try {
                     const session = JSON.parse(savedSession);
-                    console.log('[INIT] Sesión encontrada, userId:', session.userId);
                     
                     // Verificar que el usuario todavía existe y está activo
                     const user = usersData.find(u => u.id === session.userId && u.activo);
                     
                     if (user) {
-                        console.log('[INIT] Sesión válida para usuario:', user.username);
                         currentUser = user;
                         showApp(loginScreen, splash, app);
                         return;
@@ -5186,14 +5127,10 @@
             }
             
             // Mostrar pantalla de login
-            console.log('[INIT] Mostrando pantalla de login');
             loginScreen.style.display = 'flex';
             splash.classList.add('hidden');
             app.classList.add('hidden');
 
-            initTheme();
-            
-            console.log('[INIT] Inicialización completada');
         });
         
         // Mostrar la aplicación después del login
@@ -5223,24 +5160,24 @@
             cursoGestionId = null; // cada sesión comienza con el curso vigente
             if (typeof populateCursoGestionSelects === 'function') populateCursoGestionSelects();
             
-            setTimeout(() => {
+            // Revelar la aplicación una sola vez: al tocar el splash o al
+            // agotarse el temporizador (evita ejecutar dos veces la carga de
+            // datos si el usuario pulsa el splash antes de los 1,5 s)
+            let appRevelada = false;
+            const revelarApp = () => {
+                if (appRevelada) return;
+                appRevelada = true;
+                
                 splash.classList.remove('visible');
                 splash.classList.add('hidden');
                 app.classList.remove('hidden');
                 
                 loadFromFirebase();
                 
-                // Cargar actividades CC (las funciones están definidas fuera del bloque principal)
-                console.log('[INIT] Cargando actividades CC...');
+                // Cargar actividades CC (funciones declaradas en el mismo bloque:
+                // siempre disponibles al ejecutarse showApp)
                 if (typeof cargarActividadesCC === 'function') {
                     cargarActividadesCC();
-                } else {
-                    console.warn('[INIT] cargarActividadesCC no está disponible aún, reintentando...');
-                    setTimeout(() => {
-                        if (typeof cargarActividadesCC === 'function') {
-                            cargarActividadesCC();
-                        }
-                    }, 100);
                 }
                 
                 // Inicializar calendario CC con delay
@@ -5284,35 +5221,12 @@
                     if (typeof inicializarEliminacionMasivaCC === 'function') {
                         inicializarEliminacionMasivaCC();
                     }
-                    
-                    console.log('[INIT] Eliminación masiva inicializada');
                 }, 1000);
-            }, 1500);
-
-            // Usar { once: true } para evitar múltiples listeners, o verificar si ya existe
-            splash.onclick = function() {
-                splash.classList.remove('visible');
-                splash.classList.add('hidden');
-                app.classList.remove('hidden');
-                
-                loadFromFirebase();
-                
-                // Cargar actividades CC también aquí
-                if (typeof cargarActividadesCC === 'function') {
-                    cargarActividadesCC();
-                }
-                if (typeof inicializarCalendarioCC === 'function') {
-                    setTimeout(() => inicializarCalendarioCC(), 500);
-                }
             };
-
-            // Solo inicializar tabs una vez
-            if (!tabsInitialized) {
-                initTabs();
-                tabsInitialized = true;
-            }
             
-            initTheme();
+            setTimeout(revelarApp, 1500);
+            splash.onclick = revelarApp;
+            
             renderAll();
         }
 
@@ -5404,7 +5318,6 @@
             if (appData.actividades && Array.isArray(appData.actividades)) {
                 appData.actividades.forEach(act => {
                     if (act.curso && mapeoCursos[act.curso]) {
-                        console.log(`Migrando curso: ${act.curso} -> ${mapeoCursos[act.curso]}`);
                         act.curso = mapeoCursos[act.curso];
                         necesitaGuardar = true;
                     }
@@ -5414,7 +5327,6 @@
             // Guardar si hubo cambios
             if (necesitaGuardar) {
                 saveToLocalStorage();
-                console.log('Datos migrados correctamente');
             }
         }
 
@@ -5424,16 +5336,11 @@
         // PRIORIDAD ABSOLUTA: Firebase > localStorage > admin por defecto
         // REGLA DE ORO: NUNCA sobrescribir datos de Firebase con datos locales
         async function loadUsersFromStorage() {
-            console.log('[AUTH] ==================================================');
-            console.log('[AUTH] Iniciando carga de usuarios...');
-            console.log('[AUTH] PRIORIDAD: Firebase > localStorage > admin por defecto');
-            console.log('[AUTH] ==================================================');
             
             try {
                 // ────────────────────────────────────────────────
                 // PASO 1: Intentar cargar desde Firebase (FUENTE PRINCIPAL)
                 // ────────────────────────────────────────────────
-                console.log('[AUTH] 📡 PASO 1: Conectando a Firebase...');
                 
                 let firebaseData = null;
                 let firebaseError = null;
@@ -5441,15 +5348,7 @@
                 try {
                     const snapshot = await usersDbRef.once('value');
                     firebaseData = snapshot.val();
-                    console.log('[AUTH] 📦 Firebase respondió:', firebaseData ? 'TIENE DATOS' : 'VACÍO');
                     
-                    if (firebaseData) {
-                        console.log('[AUTH]    - lastUpdated:', firebaseData.lastUpdated);
-                        console.log('[AUTH]    - users:', firebaseData.users ? `${firebaseData.users.length} usuarios` : 'SIN ARRAY');
-                        if (firebaseData.users) {
-                            console.log('[AUTH]    - lista:', firebaseData.users.map(u => u.username));
-                        }
-                    }
                 } catch (err) {
                     firebaseError = err;
                     console.warn('[AUTH] ⚠️ Error conectando a Firebase:', err.message);
@@ -5459,25 +5358,18 @@
                 // PASO 2: Si Firebase tiene usuarios, usarlos SIEMPRE
                 // ────────────────────────────────────────────────
                 if (firebaseData && firebaseData.users && Array.isArray(firebaseData.users) && firebaseData.users.length > 0) {
-                    console.log('[AUTH] ✅ PASO 2: Usando usuarios de Firebase como fuente PRINCIPAL');
                     
                     usersData = firebaseData.users;
-                    console.log(`[AUTH]    → Cargados ${usersData.length} usuarios desde Firebase`);
                     
                     // Guardar en localStorage como caché
                     localStorage.setItem('aaccee_users', JSON.stringify(usersData));
-                    console.log('[AUTH]    → Cache actualizado en localStorage');
                     
                     // Hashear contraseñas si es necesario
                     await hashPasswordsIfNeeded();
                     
-                    console.log('[AUTH] ✅ CARGA COMPLETADA DESDE FIREBASE');
-                    console.log('[AUTH] Usuarios disponibles:', usersData.map(u => u.username));
                     return usersData;
                 }
-                
-                console.log('[AUTH] ℹ️ Firebase no tiene usuarios válidos, buscando alternativas...');
-                
+
                 // ────────────────────────────────────────────────
                 // PASO 3: Si Firebase está vacío, intentar localStorage
                 // ────────────────────────────────────────────────
@@ -5487,13 +5379,10 @@
                 if (saved) {
                     try {
                         localUsers = JSON.parse(saved);
-                        console.log(`[AUTH] 📁 PASO 3: LocalStorage tiene ${localUsers.length} usuarios`);
                     } catch (e) {
                         console.warn('[AUTH] ⚠️ Error leyendo localStorage:', e);
                         localUsers = [];
                     }
-                } else {
-                    console.log('[AUTH] 📁 PASO 3: LocalStorage vacío (primera vez en este navegador)');
                 }
                 
                 // ────────────────────────────────────────────────
@@ -5501,22 +5390,18 @@
                 // ────────────────────────────────────────────────
                 if (localUsers.length > 0) {
                     usersData = localUsers;
-                    console.log(`[AUTH] ✅ PASO 4: Usando ${usersData.length} usuarios del localStorage`);
                     
                     // IMPORTANTE: Subir estos usuarios a Firebase para futuras sesiones
                     // PERO SOLO si Firebase estaba vacío (no sobrescribir)
                     if (!firebaseData || !firebaseData.users || firebaseData.users.length === 0) {
-                        console.log('[AUTH]    → Sincronizando usuarios locales a Firebase...');
                         try {
                             await saveUsersToFirebase();
-                            console.log('[AUTH]    → Usuarios sincronizados a Firebase');
                         } catch (syncErr) {
                             console.warn('[AUTH]    ⚠️ No se pudo sincronizar a Firebase:', syncErr.message);
                         }
                     }
                 } else {
                     usersData = [];
-                    console.log('[AUTH] PASO 4: No hay usuarios en ninguna fuente');
                 }
                 
                 // ────────────────────────────────────────────────
@@ -5525,38 +5410,29 @@
                 const hasAdmin = usersData.some(u => u.id === 'admin_default');
                 
                 if (!hasAdmin) {
-                    console.log('[AUTH] 🆕 PASO 5: Creando usuario admin por defecto...');
                     
                     const newAdmin = {...DEFAULT_ADMIN};
                     newAdmin.password = await hashPassword(newAdmin.password);
                     newAdmin.passwordHashed = true;
                     
                     usersData.push(newAdmin);
-                    console.log('[AUTH]    → Admin creado con contraseña hasheada');
                     
                     // Guardar en localStorage
                     localStorage.setItem('aaccee_users', JSON.stringify(usersData));
                     
                     // Solo guardar en Firebase si estaba vacío (NO sobrescribir datos existentes)
                     if (!firebaseData || !firebaseData.users || firebaseData.users.length === 0) {
-                        console.log('[AUTH]    → Guardando admin inicial en Firebase...');
                         try {
                             await saveUsersToFirebase();
-                            console.log('[AUTH]    → Admin guardado en Firebase');
                         } catch (e) {
                             console.warn('[AUTH]    ⚠️ No se pudo guardar admin en Firebase:', e.message);
                         }
-                    } else {
-                        console.log('[AUTH]    ⚠️ Firebase ya tiene datos, NO sobrescribimos');
                     }
                 }
                 
                 // Hashear contraseñas pendientes
                 await hashPasswordsIfNeeded();
                 
-                console.log('[AUTH] ✅ CARGA COMPLETADA');
-                console.log('[AUTH] Total usuarios:', usersData.length);
-                console.log('[AUTH] Disponibles:', usersData.map(u => u.username));
                 return usersData;
                 
             } catch (error) {
@@ -5564,7 +5440,6 @@
                 
                 // ÚLTIMO RECURSO
                 if (!usersData.some(u => u.id === 'admin_default')) {
-                    console.log('[AUTH] 🚨 Creando admin de emergencia...');
                     const emergencyAdmin = {...DEFAULT_ADMIN};
                     emergencyAdmin.password = await hashPassword(emergencyAdmin.password);
                     emergencyAdmin.passwordHashed = true;
@@ -5581,7 +5456,6 @@
             let needsSave = false;
             for (let user of usersData) {
                 if (!user.passwordHashed && user.password) {
-                    console.log('[AUTH] Hasheando contraseña para:', user.username);
                     user.password = await hashPassword(user.password);
                     user.passwordHashed = true;
                     needsSave = true;
@@ -5589,7 +5463,6 @@
             }
             if (needsSave) {
                 localStorage.setItem('aaccee_users', JSON.stringify(usersData));
-                console.log('[AUTH] Contraseñas hasheadas y guardadas');
             }
         }
         
@@ -5602,7 +5475,6 @@
             if (typeof saveUsersToFirebase === 'function') {
                 try {
                     await saveUsersToFirebase();
-                    console.log('[SAVE] ✅ Usuarios guardados en localStorage Y Firebase');
                 } catch (firebaseError) {
                     console.error('[SAVE] ⚠️ Error guardando en Firebase:', firebaseError);
                     console.error('[SAVE] ⚠️ Los datos están en localStorage pero NO en Firebase');
@@ -5615,7 +5487,6 @@
         // Manejar login
         async function handleLogin(event) {
             event.preventDefault();
-            console.log('[LOGIN] Iniciando proceso de login...');
             
             const usernameEl = document.getElementById('loginUsername');
             const passwordEl = document.getElementById('loginPassword');
@@ -5634,21 +5505,16 @@
             
             const username = usernameEl.value.trim();
             const password = passwordEl.value;
-            
-            console.log('[LOGIN] Usuario introducido:', username);
-            console.log('[LOGIN] Usuarios disponibles:', usersData.length);
-            
+
             // Deshabilitar botón mientras se procesa
             loginBtn.disabled = true;
             loginBtn.textContent = 'Verificando...';
-            errorDiv.classList.remove('visible');
             errorDiv.classList.remove('visible');
             
             // Hashear la contraseña introducida
             let passwordHash;
             try {
                 passwordHash = await hashPassword(password);
-                console.log('[LOGIN] Contraseña hasheada correctamente');
             } catch (hashError) {
                 console.error('[LOGIN] Error hasheando contraseña:', hashError);
                 errorDiv.textContent = 'Error al procesar la contraseña';
@@ -5661,36 +5527,19 @@
             // Simular pequeña delay para mejor UX
             setTimeout(async () => {
                 try {
-                    console.log('[LOGIN] Buscando usuario coincidente...');
-                    console.log('[LOGIN] usersData:', usersData.map(u => ({ 
-                        id: u.id, 
-                        username: u.username, 
-                        activo: u.activo,
-                        hasPassword: !!u.password 
-                    })));
                     
                     // Buscar usuario por username y comparar hash de contraseña
                     const user = usersData.find(u => {
                         const match = u.username.toLowerCase() === username.toLowerCase() && 
                                       u.password === passwordHash && 
                                       u.activo;
-                        if (u.username.toLowerCase() === username.toLowerCase()) {
-                            console.log(`[LOGIN] Comparando con ${u.username}:`, {
-                                usernameMatch: true,
-                                passwordMatch: u.password === passwordHash,
-                                activo: u.activo,
-                                finalMatch: match
-                            });
-                        }
                         return match;
                     });
                     
                     if (user) {
-                        console.log('[LOGIN] ¡Usuario encontrado!', user.username);
                         
                         // Verificar si debe cambiar contraseña
                         if (user.forcePasswordChange) {
-                            console.log('[LOGIN] Forzando cambio de contraseña...');
                             const newPassword = prompt(`Bienvenido, ${user.nombre}!\n\nPor seguridad, debes cambiar tu contraseña por primera vez:\n(Nueva contraseña mínimo 4 caracteres)`);
                             if (newPassword && newPassword.length >= 4) {
                                 user.password = await hashPassword(newPassword);
@@ -5786,7 +5635,6 @@
             // Filtrar menú móvil según rol
             filterMobileNavByRole();
         }
-        
 
         // Filtrar menú móvil según rol del usuario
         function filterMobileNavByRole() {
@@ -6053,13 +5901,14 @@
             }
             
             renderUsersList();
-            cerrarModalUsuario();
             
-            // Si el admin editó su propio usuario, actualizar sesión
+            // Si el admin editó su propio usuario, actualizar la sesión ANTES
+            // de cerrar el modal (cerrarModalUsuario() anula editingUserId)
             if (currentUser && editingUserId === currentUser.id) {
-                currentUser = usersData.find(u => u.id === editingUserId);
+                currentUser = usersData.find(u => u.id === editingUserId) || currentUser;
                 updateSessionUI();
             }
+            cerrarModalUsuario();
         }
         
         // Eliminar usuario
@@ -6118,7 +5967,7 @@
             cursos.forEach(curso => {
                 const selected = curso.id === appData.config.cursoEscolarActivo ? 'selected' : '';
                 const estado = obtenerEstadoCurso(curso);
-                select.innerHTML += `<option value="${curso.id}" ${selected}>${curso.nombre} (${estado.texto})</option>`;
+                select.innerHTML += `<option value="${escapeHTML(curso.id)}" ${selected}>${escapeHTML(curso.nombre)} (${estado.texto})</option>`;
             });
             
             // Actualizar lista
@@ -6330,16 +6179,33 @@
             }
             
             const numActividades = appData.actividades.filter(a => a.cursoEscolarId === id).length;
+            const numActividadesCC = (typeof actividadesCC !== 'undefined' && Array.isArray(actividadesCC))
+                ? actividadesCC.filter(a => a.cursoEscolarId === id).length : 0;
             
             let mensaje = `¿Eliminar el curso "${curso.nombre}"?`;
-            if (numActividades > 0) {
-                mensaje += `\n\n⚠️ Este curso tiene ${numActividades} actividad${numActividades !== 1 ? 'es' : ''} asociada${numActividades !== 1 ? 's' : ''}. También se eliminarán.`;
+            const totalAsociadas = numActividades + numActividadesCC;
+            if (totalAsociadas > 0) {
+                const partes = [];
+                if (numActividades > 0) partes.push(`${numActividades} EE`);
+                if (numActividadesCC > 0) partes.push(`${numActividadesCC} CC`);
+                mensaje += `\n\n⚠️ Este curso tiene ${partes.join(' y ')} actividad${totalAsociadas !== 1 ? 'es' : ''} asociada${totalAsociadas !== 1 ? 's' : ''}. También se eliminarán.`;
             }
             
             if (!confirm(mensaje)) return;
             
-            // Eliminar actividades asociadas
+            // Eliminar actividades asociadas (EE y CC: evita datos huérfanos)
             appData.actividades = appData.actividades.filter(a => a.cursoEscolarId !== id);
+            if (typeof actividadesCC !== 'undefined' && Array.isArray(actividadesCC)) {
+                actividadesCC = actividadesCC.filter(a => a.cursoEscolarId !== id);
+                if (typeof guardarActividadesCC === 'function') guardarActividadesCC();
+            }
+            // Limpiar profesorado y unidades del curso eliminado
+            if (appData.config.profesoradoPorCurso && appData.config.profesoradoPorCurso[id]) {
+                delete appData.config.profesoradoPorCurso[id];
+            }
+            if (appData.config.unidadesPorCurso && appData.config.unidadesPorCurso[id]) {
+                delete appData.config.unidadesPorCurso[id];
+            }
             
             // Eliminar curso
             appData.config.cursosEscolares = appData.config.cursosEscolares.filter(c => c.id !== id);
@@ -6356,6 +6222,9 @@
             saveToLocalStorage();
             renderCursosEscolares();
             renderAll();
+            // Refrescar también las vistas CC (lista, selector y calendario)
+            if (typeof renderizarListaCC === 'function') renderizarListaCC();
+            if (typeof actualizarSelectorCCEdit === 'function') actualizarSelectorCCEdit();
             showToast('Curso escolar eliminado', 'success');
         }
         
@@ -6467,25 +6336,6 @@
          * @param {string} fechaStr - Fecha en formato YYYY-MM-DD
          * @returns {string} Fecha desplazada un año o cadena vacía si no hay fecha
          */
-        function desplazarFechaUnAno(fechaStr) {
-            if (!fechaStr || fechaStr.trim() === '') return '';
-            
-            try {
-                const fecha = new Date(fechaStr);
-                fecha.setFullYear(fecha.getFullYear() + 1);
-                
-                // Formatear como YYYY-MM-DD
-                const year = fecha.getFullYear();
-                const month = String(fecha.getMonth() + 1).padStart(2, '0');
-                const day = String(fecha.getDate()).padStart(2, '0');
-                
-                return `${year}-${month}-${day}`;
-            } catch (e) {
-                console.error('[IMPORT] Error al desplazar fecha:', e, fechaStr);
-                return fechaStr; // Devolver original si hay error
-            }
-        }
-        
         function actualizarPreviewFechas() {
             const anoInicio = document.getElementById('cursoAnoInicio').value;
             if (anoInicio) {
@@ -6689,7 +6539,6 @@
             renderInformeSelects();
             updateTrimestreOptions();
             updateDeptFields();
-            updateProfFields();
             // Actualizar unidades configurables
             renderGestionUnidades();
             actualizarTodosLosSelectsDeUnidades();
@@ -6750,7 +6599,6 @@
                 
                 // Migrar datos del array legacy solo para el PRIMER curso que los use
                 if (appData.config.profesorado && appData.config.profesorado.length > 0) {
-                    console.log(`[PROFESORADO] Migrando ${appData.config.profesorado.length} profesores del array legacy al curso ${cursoId}`);
                     appData.config.profesoradoPorCurso[cursoId] = [...appData.config.profesorado];
                     appData.config.profesorado = []; // Limpiar legacy después de migrar
                     saveToLocalStorage();
@@ -6917,11 +6765,8 @@
                 
                 const tipo = btnEliminar.getAttribute('data-tipo');
                 const idx = parseInt(btnEliminar.getAttribute('data-index'));
-                
-                console.log('[handleUnidadContainerClick] Click detectado en botón eliminar:', { tipo, idx, boton: btnEliminar });
-                
+
                 if (tipo !== undefined && tipo !== null && !isNaN(idx)) {
-                    console.log('[handleUnidadContainerClick] Llamando a eliminarUnidad...');
                     eliminarUnidad(tipo, idx);
                 } else {
                     console.error('[handleUnidadContainerClick] Datos inválidos:', { tipo, idx });
@@ -6935,7 +6780,6 @@
          * Añade un nuevo curso EE vacío
          */
         function añadirNivelESO() {
-            console.log('[añadirNivelESO] Añadiendo nuevo curso...');
             
             const cursoId = getCursoActivoId();
             if (!cursoId) {
@@ -6962,9 +6806,7 @@
             
             const nuevoNombre = `Nuevo Curso ${appData.config.unidadesPorCurso[cursoId].cursos.length + 1}`;
             appData.config.unidadesPorCurso[cursoId].cursos.push(nuevoNombre);
-            
-            console.log('[añadirNivelESO] Curso añadido:', nuevoNombre);
-            
+
             // Guardar cambios
             saveToLocalStorage();
             renderGestionUnidades();
@@ -6976,7 +6818,6 @@
          * Añade una nueva unidad CC vacía
          */
         function añadirGrupo() {
-            console.log('[añadirGrupo] Añadiendo nueva unidad...');
             
             const cursoId = getCursoActivoId();
             if (!cursoId) {
@@ -7003,9 +6844,7 @@
             
             const nuevoNombre = `Nueva Unidad ${appData.config.unidadesPorCurso[cursoId].unidades.length + 1}`;
             appData.config.unidadesPorCurso[cursoId].unidades.push(nuevoNombre);
-            
-            console.log('[añadirGrupo] Unidad añadida:', nuevoNombre);
-            
+
             // Guardar cambios
             saveToLocalStorage();
             renderGestionUnidades();
@@ -7020,9 +6859,7 @@
             const idx = parseInt(input.dataset.index);
             const tipo = input.dataset.tipo;
             const valor = input.value.trim();
-            
-            console.log('[actualizarUnidad] Actualizando:', { idx, tipo, valor });
-            
+
             if (!valor) {
                 showToast('El nombre no puede estar vacío', 'warning');
                 const unidades = getUnidadesCursoActivo();
@@ -7059,7 +6896,6 @@
             // Guardar cambios inmediatamente
             saveToLocalStorage();
             actualizarTodosLosSelectsDeUnidades();
-            console.log('[actualizarUnidad] Actualización guardada');
         }
         
         /**
@@ -7068,7 +6904,6 @@
          * @param {number} idx - Índice de la unidad a eliminar
          */
         function eliminarUnidad(tipo, idx) {
-            console.log('[eliminarUnidad] Iniciando eliminación:', { tipo, idx });
             
             // SEGURIDAD: No permitir eliminar CURSOS (EE), solo UNIDADES (CC)
             if (tipo === 'curso') {
@@ -7078,7 +6913,6 @@
             }
             
             const cursoId = getCursoActivoId();
-            console.log('[eliminarUnidad] cursoId:', cursoId);
             
             if (!cursoId) {
                 showToast('⚠️ No hay un curso activo seleccionado', 'error');
@@ -7103,7 +6937,6 @@
             
             // Asegurar que la entrada existe en unidadesPorCurso (CRÍTICO: trabajar con datos originales)
             if (!appData.config.unidadesPorCurso[cursoId]) {
-                console.log('[eliminarUnidad] Inicializando unidadesPorCurso para:', cursoId);
                 appData.config.unidadesPorCurso[cursoId] = {
                     cursos: [...(appData.config.unidadesDefecto?.cursos || ['1º ESO', '2º ESO', '3º ESO', '4º ESO'])],
                     unidades: [...(appData.config.unidadesDefecto?.unidades || ['1º A', '1º B', '2º A', '2º B'])]
@@ -7112,9 +6945,7 @@
             
             const key = tipo === 'curso' ? 'cursos' : 'unidades';
             const arrayUnidades = appData.config.unidadesPorCurso[cursoId][key];
-            
-            console.log('[eliminarUnidad] key:', key, '- Array:', arrayUnidades, '- Longitud:', arrayUnidades.length);
-            
+
             // Validar índice
             if (idx < 0 || idx >= arrayUnidades.length) {
                 showToast('⚠️ Error: índice de unidad no válido', 'error');
@@ -7124,24 +6955,17 @@
             
             const nombreEliminado = arrayUnidades[idx];
             const tipoNombre = tipo === 'curso' ? 'Curso' : 'Unidad';
-            
-            console.log(`[eliminarUnidad] Se eliminará ${tipoNombre}: "${nombreEliminado}"`);
-            
+
             // Confirmar eliminación
             if (!confirm(`¿Eliminar ${tipoNombre.toLowerCase()} "${nombreEliminado}"?`)) {
-                console.log('[eliminarUnidad] Eliminación cancelada por usuario');
                 return;
             }
             
             // Eliminar del array ORIGINAL (no una copia)
             arrayUnidades.splice(idx, 1);
-            
-            console.log('[eliminarUnidad] Elemento eliminado. Nuevo estado:', arrayUnidades);
-            console.log('[eliminarUnidad] Guardando en localStorage...');
-            
+
             // GUARDAR EN LOCALSTORAGE Y FIREBASE - CRÍTICO para persistir cambios
             saveToLocalStorage().then(() => {
-                console.log('[eliminarUnidad] ✅ Guardado completado');
                 
                 // Re-renderizar la UI
                 renderGestionUnidades();
@@ -7150,7 +6974,6 @@
                 actualizarTodosLosSelectsDeUnidades();
                 
                 showToast(`${tipoNombre} "${nombreEliminado}" eliminada correctamente`, 'success');
-                console.log('[eliminarUnidad] ✅ Proceso completado con éxito');
             }).catch(err => {
                 console.error('[eliminarUnidad] ERROR al guardar:', err);
                 showToast('Error al guardar los cambios', 'error');
@@ -7160,35 +6983,6 @@
         /**
          * Restaura los cursos EE por defecto
          */
-        function restaurarNivelesDefecto() {
-            const cursoId = getCursoActivoId();
-            if (!cursoId) {
-                showToast('⚠️ No hay un curso activo seleccionado', 'error');
-                return;
-            }
-            
-            if (!appData.config.unidadesPorCurso[cursoId]) {
-                appData.config.unidadesPorCurso[cursoId] = {
-                    cursos: [],
-                    unidades: []
-                };
-            }
-            
-            // Confirmar restauración
-            if (!confirm('¿Restaurar los cursos (EE) a los valores por defecto?\n\nEsto reemplazará la configuración actual de cursos.')) {
-                return;
-            }
-            
-            appData.config.unidadesPorCurso[cursoId].cursos = [...appData.config.unidadesDefecto.cursos];
-            
-            // GUARDAR EN LOCALSTORAGE
-            saveToLocalStorage();
-            
-            renderGestionUnidades();
-            actualizarTodosLosSelectsDeUnidades();
-            showToast('✅ Cursos (EE) restaurados a valores por defecto', 'success');
-        }
-        
         /**
          * Restaura las unidades CC por defecto
          */
@@ -7257,7 +7051,6 @@
             actualizarTodosLosSelectsDeUnidades();
             
             showToast(`✅ Configuración guardada para ${getNombreCursoActivo()} (${unidades.cursos.length} cursos, ${unidades.unidades.length} unidades)`, 'success');
-            console.log('[UNIDADES] Configuración guardada:', appData.config.unidadesPorCurso[cursoId]);
         }
         
         /**
@@ -7301,7 +7094,6 @@
             actualizarSelectUnidadesCC('ccEditUnidad', false);
             actualizarSelectUnidadesCC('ccModalUnidad', true);
             
-            console.log('[UNIDADES] Todos los selects actualizados');
         }
         
         /**
@@ -7825,7 +7617,6 @@
             }
             
             showToast('Actividad eliminada correctamente', 'success');
-            console.log('[CRONO] Actividad eliminada desde cronograma:', act.nombre);
         }
 
         // ==================== EDICIÓN DESDE CRONOGRAMA ====================
@@ -7838,9 +7629,7 @@
                 showToast('Actividad no encontrada', 'error');
                 return;
             }
-            
-            console.log('[CRONO] Abriendo modal de edición para:', act.nombre);
-            
+
             // Guardar ID de la actividad que se está editando
             document.getElementById('cronoEditId').value = activityId;
             
@@ -8027,7 +7816,6 @@
             cerrarModalCronoEdit();
             
             showToast('Actividad actualizada correctamente', 'success');
-            console.log('[CRONO] Actividad actualizada:', act.nombre);
             
             // Si se ha fijado una fecha (o ha cambiado), ofrecer publicar en Google Calendar
             if (act.fecha && act.fecha !== fechaAnterior) {
@@ -8534,9 +8322,7 @@
             if (!confirm(`⚠️ ÚLTIMA ADVERTENCIA:\n\n¿Estás ABSOLUTAMENTE seguro de eliminar ${numProfesores} profesor${numProfesores !== 1 ? 'es' : ''} del curso "${nombreCurso}"?\n\nEsta acción NO se puede deshacer.`)) {
                 return;
             }
-            
-            console.log(`[PROFESORADO] Eliminando ${numProfesores} profesores del curso ${cursoId} (${nombreCurso})`);
-            
+
             // Eliminar todo el profesorado del curso
             saveProfesoradoCursoActivo([]);
             
@@ -8580,24 +8366,20 @@
             }
             
             const isOpen = header.classList.contains('open');
-            console.log('[ACCORDION] Toggle llamado. ¿Estaba abierto?', isOpen);
             
             // Si ya estaba abierto, simplemente cerrarlo
             if (isOpen) {
-                console.log('[ACCORDION] Cerrando acordeón...');
                 header.classList.remove('open');
                 content.classList.remove('open');
                 
                 // Si es acordeón principal, añadir hidden
                 if (content.dataset.mainAccordion === 'true') {
                     content.classList.add('hidden');
-                    console.log('[ACCORDION] Acordeón principal cerrado con hidden');
                 }
                 return;
             }
             
             // Si NO estaba abierto, primero cerrar los hermanos del mismo nivel
-            console.log('[ACCORDION] Abriendo acordeón nuevo...');
             
             // Encontrar el contenedor padre para obtener los hermanos
             const parentContainer = header.parentElement; // El div.card que contiene header + content
@@ -8605,7 +8387,6 @@
             if (parentContainer) {
                 // Cerrar todos los acordeones HERMANOS (mismo nivel)
                 const siblingHeaders = parentContainer.parentElement.querySelectorAll(':scope > .card > .accordion-header');
-                console.log('[ACCORDION] Encontrados', siblingHeaders.length, 'acordeones hermanos');
                 
                 siblingHeaders.forEach(h => {
                     if (h !== header) { // No cerrar el que acabamos de pulsar
@@ -8627,13 +8408,11 @@
             if (content.dataset.mainAccordion === 'true') {
                 // Acordeón principal: quitar hidden y añadir open
                 content.classList.remove('hidden');
-                console.log('[ACCORDION] Acordeón principal abierto, quitando hidden');
             }
             
             // Usar setTimeout para asegurar que el navegador procese el cambio de display
             setTimeout(() => {
                 content.classList.add('open');
-                console.log('[ACCORDION] Clase open añadida correctamente');
             }, 10);
         }
 
@@ -8695,48 +8474,6 @@
                         </div>
                     `;
                 }
-            }
-        }
-
-        function updateProfFields() {
-            // Verificar que el elemento existe (puede no estar en el DOM si se ocultó el campo)
-            const profCountEl = document.getElementById('newProfCount');
-            const container = document.getElementById('profFields');
-            
-            if (!profCountEl || !container) return; // Salir si los elementos no existen
-            
-            const count = parseInt(profCountEl.value);
-            
-            // Guardar valores actualmente seleccionados ANTES de limpiar
-            const selectedValues = [];
-            container.querySelectorAll('.prof-select').forEach(select => {
-                if (select.value) selectedValues.push(select.value);
-            });
-            
-            container.innerHTML = '';
-            
-            // Obtener profesorado del curso activo
-            const profesoradoDisponible = getProfesoradoCursoActivo();
-            
-            for (let i = 0; i < count; i++) {
-                // Obtener valores ya seleccionados en otros campos (excluyendo el actual)
-                const otherSelectedValues = selectedValues.filter((_, idx) => idx !== i);
-                
-                // Filtrar profesores: mostrar todos EXCEPTO los ya seleccionados en otros campos
-                const availableProfs = profesoradoDisponible.filter(p => !otherSelectedValues.includes(p));
-                
-                // Valor actual para este campo (si existe)
-                const currentValue = selectedValues[i] || '';
-                
-                container.innerHTML += `
-                    <div>
-                        <label class="block text-sm font-medium mb-1">Profesor/a ${i + 1}</label>
-                        <select class="form-input form-select prof-select" onchange="updateProfFields()" data-index="${i}">
-                            <option value="">Selecciona</option>
-                            ${availableProfs.map(p => `<option value="${p}" ${p === currentValue ? 'selected' : ''}>${p}</option>`).join('')}
-                        </select>
-                    </div>
-                `;
             }
         }
 
@@ -8844,7 +8581,6 @@
             document.getElementById('organizadorField').classList.add('hidden');
         }
 
-        
         // Función para toggle del checkbox "La actividad no se realizó"
         function toggleEditFecha() {
             const checkbox = document.getElementById('editNoRealizada');
@@ -9002,7 +8738,7 @@
                         <label class="block text-sm font-medium mb-1">Profesor/a ${i + 1}</label>
                         <select class="form-input form-select edit-prof-select" onchange="updateEditProfFields()">
                             <option value="">Selecciona</option>
-                            ${availableProfs.map(p => `<option value="${p}" ${p === currentValue ? 'selected' : ''}>${p}</option>`).join('')}
+                            ${availableProfs.map(p => `<option value="${escapeHTML(p)}" ${p === currentValue ? 'selected' : ''}>${escapeHTML(p)}</option>`).join('')}
                         </select>
                     </div>
                 `;
@@ -9128,11 +8864,6 @@
             const tieneObservaciones = act.observaciones && act.observaciones.trim() !== '';
             
             // Log para depuración
-            console.log('=== VERIFICACIÓN ELIMINACIÓN ===');
-            console.log('Actividad:', act.nombre);
-            console.log('Fecha:', act.fecha, '| Tiene fecha:', tieneFecha);
-            console.log('Profesorado:', act.profesorado, '| Tiene profesorado:', tieneProfesorado);
-            console.log('Observaciones:', act.observaciones, '| Tiene observaciones:', tieneObservaciones);
             
             if (tieneFecha || tieneProfesorado || tieneObservaciones) {
                 let motivos = [];
@@ -9141,7 +8872,6 @@
                 if (tieneObservaciones) motivos.push('Observaciones');
                 
                 showToast(`[X] No se puede eliminar: la actividad ya tiene datos de ejecucion (${motivos.join(', ')})`, 'error');
-                console.log('[X] ELIMINACION BLOQUEADA - Motivos:', motivos);
                 return;
             }
             
@@ -9239,7 +8969,6 @@
                     actividades = actividades.filter(a => a.cursoEscolarId === cursoActivoId);
                 }
                 dataToExport.actividades = actividades;
-                console.log(`[EXPORT] Incluyendo ${actividades.length} actividades EE`);
             }
             
             // Actividades CC
@@ -9249,7 +8978,6 @@
                     cc = cc.filter(a => a.cursoEscolarId === cursoActivoId);
                 }
                 dataToExport.actividadesCC = cc;
-                console.log(`[EXPORT] Incluyendo ${cc.length} actividades CC`);
             }
             
             // Profesorado
@@ -9263,7 +8991,6 @@
                         cursoNombre: getNombreCursoActivo(),
                         profesores: profCurso
                     };
-                    console.log(`[EXPORT] Incluyendo ${profCurso.length} profesores del curso activo`);
                 } else {
                     // Todo el profesorado de todos los cursos
                     dataToExport.profesorado = {
@@ -9271,7 +8998,6 @@
                         profesoradoPorCurso: appData?.config?.profesoradoPorCurso || {},
                         profesoradoLegacy: appData?.config?.profesorado || []
                     };
-                    console.log('[EXPORT] Incluyendo profesorado de todos los cursos');
                 }
             }
             
@@ -9287,7 +9013,6 @@
                         ? { [cursoActivoId]: appData?.config?.unidadesPorCurso?.[cursoActivoId] || null }
                         : (appData?.config?.unidadesPorCurso || {})
                 };
-                console.log('[EXPORT] Incluyendo configuración (con unidades)');
             }
             
             // Unidades (si no se incluyeron en config, se pueden exportar por separado)
@@ -9298,7 +9023,6 @@
                         ? { [cursoActivoId]: getUnidadesCursoActivo() }
                         : appData?.config?.unidadesPorCurso || {}
                 };
-                console.log('[EXPORT] Incluyendo unidades por separado');
             }
             
             // Añadir metadatos de la exportación
@@ -9327,16 +9051,11 @@
             
             const numItems = Object.keys(dataToExport).filter(k => k !== '_metadata').length;
             showToast(`✅ Datos exportados correctamente (${numItems} secciones)`, 'success');
-            console.log('[EXPORT] Exportación completada:', Object.keys(dataToExport));
         }
         
         /**
         * Función legacy de exportación (se mantiene por compatibilidad, llama al modal)
         */
-        function exportData() {
-            abrirModalExportar();
-        }
-
         function importData(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -9411,7 +9130,6 @@
                     enlacesNormativa: appData.enlacesNormativa || [],
                     lastUpdated: new Date().toISOString()
                 });
-                console.log('Datos guardados en Firebase (usuarios preservados)');
             } catch (error) {
                 console.error('Error al guardar en Firebase:', error);
                 showToast('Error al guardar en la nube', 'error');
@@ -9443,13 +9161,11 @@
                     
                     // CRÍTICO: Asegurar que unidadesPorCurso siempre exista después de cargar de Firebase
                     if (!appData.config.unidadesPorCurso) {
-                        console.log('[FIREBASE] Inicializando unidadesPorCurso (no existía en Firebase)');
                         appData.config.unidadesPorCurso = {};
                     }
                     
                     // CRÍTICO: Asegurar que unidadesDefecto siempre exista
                     if (!appData.config.unidadesDefecto) {
-                        console.log('[FIREBASE] Inicializando unidadesDefecto (no existía en Firebase)');
                         appData.config.unidadesDefecto = {
                             cursos: ['1º ESO', '2º ESO', '3º ESO', '4º ESO'],
                             unidades: ['1º A', '1º B', '2º A', '2º B', '3º A', '3º B', '4º A', '4º B']
@@ -9461,7 +9177,6 @@
                     
                     saveToLocalStorage();
                     renderAll();
-                    console.log('Datos cargados desde Firebase');
                 }
                 
                 // También cargar usuarios
@@ -9477,18 +9192,6 @@
             }
         }
         
-        // Escuchar cambios en tiempo real
-        function listenToFirebaseChanges() {
-            dbRef.on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data && data.lastUpdated) {
-                    console.log('Datos sincronizados:', data.lastUpdated);
-                }
-            }, (error) => {
-                console.error('Error escuchando cambios:', error);
-            });
-        }
-        
         // ==================== FIREBASE USER SYNC ====================
         
         // Referencia a usuarios en Firebase
@@ -9501,23 +9204,11 @@
         let adminInitializedFlag = false;
         
         // Verificar si el admin ya fue inicializado en Firebase
-        async function checkAdminInitialized() {
-            try {
-                const snapshot = await configDbRef.child('adminInitialized').once('value');
-                adminInitializedFlag = snapshot.val() === true;
-                return adminInitializedFlag;
-            } catch (error) {
-                console.error('Error al verificar inicialización del admin:', error);
-                return false;
-            }
-        }
-        
         // Marcar el admin como inicializado en Firebase
         async function markAdminAsInitialized() {
             try {
                 await configDbRef.child('adminInitialized').set(true);
                 adminInitializedFlag = true;
-                console.log('Admin marcado como inicializado en Firebase');
             } catch (error) {
                 console.error('Error al marcar admin como inicializado:', error);
             }
@@ -9526,15 +9217,12 @@
         // Guardar usuarios en Firebase
         async function saveUsersToFirebase() {
             try {
-                console.log('[FIREBASE SAVE] Guardando', usersData.length, 'usuarios en Firebase...');
-                console.log('[FIREBASE SAVE] Usuarios:', usersData.map(u => u.username));
                 
                 await usersDbRef.set({
                     users: usersData,
                     lastUpdated: new Date().toISOString(),
                     source: window.location.href // Para debug: saber desde dónde se guardó
                 });
-                console.log('[FIREBASE SAVE] ✅ Usuarios guardados correctamente en Firebase');
             } catch (error) {
                 console.error('[FIREBASE SAVE] ❌ Error al guardar usuarios:', error);
                 console.error('[FIREBASE SAVE] Detalle:', error.message, error.code);
@@ -9544,21 +9232,15 @@
         // Cargar usuarios desde Firebase
         async function loadUsersFromFirebase() {
             try {
-                console.log('[FIREBASE USERS] Intentando cargar usuarios desde Firebase...');
                 const snapshot = await usersDbRef.once('value');
                 const data = snapshot.val();
-                
-                console.log('[FIREBASE USERS] Datos recibidos:', data ? 'EXISTEN' : 'VACÍOS/NULL');
-                
+
                 if (data && data.users && Array.isArray(data.users) && data.users.length > 0) {
                     const usuariosAntes = usersData.length;
                     usersData = data.users;
-                    console.log(`[FIREBASE USERS] ✅ Usuarios cargados: ${usuariosAntes} → ${usersData.length}`);
-                    console.log('[FIREBASE USERS] Lista:', usersData.map(u => u.username));
                     
                     // Solo agregar admin si no existe Y no fue inicializado previamente en Firebase
                     if (!usersData.find(u => u.id === 'admin_default') && !adminInitializedFlag) {
-                        console.log('[FIREBASE USERS] Añadiendo admin por defecto...');
                         const newAdmin = {...DEFAULT_ADMIN};
                         newAdmin.password = await hashPassword(newAdmin.password);
                         newAdmin.passwordHashed = true;
@@ -9567,10 +9249,8 @@
                     }
                     
                     saveUsersToStorage();
-                    console.log('[FIREBASE USERS] ✅ Sincronización completada desde Firebase');
                     return true; // Éxito
                 } else {
-                    console.log('[FIREBASE USERS] ⚠️ No hay usuarios válidos en Firebase');
                     return false; // Sin datos
                 }
             } catch (error) {
@@ -9897,7 +9577,6 @@
                         return actividades;
                     }
                 } catch (e) {
-                    console.log('[IMPORT CURSO ANT] Firebase no disponible, usando localStorage');
                 }
             }
             
@@ -10183,7 +9862,6 @@
         }
         
         function generateInformeCurso() {
-            console.log('[INFORME] === Generando informe por curso ===');
             try {
                 // Verificar que jsPDF está disponible
                 if (!window.jspdf) {
@@ -10204,9 +9882,7 @@
                 // Obtener filtros seleccionados
                 const nivelesSeleccionados = getNivelesSeleccionados();
                 const estadoFiltro = estadoSelect.value;
-                
-                console.log('[INFORME] Niveles:', nivelesSeleccionados, '| Estado:', estadoFiltro);
-                
+
                 if (nivelesSeleccionados.length === 0) {
                     alert('Selecciona al menos un nivel (curso)');
                     return;
@@ -10214,7 +9890,6 @@
                 
                 let yPos = 45;
                 const actividadesCurso = getActividadesCursoActivo();
-                console.log('[INFORME] Actividades encontradas:', actividadesCurso.length);
                 
                 nivelesSeleccionados.forEach(curso => {
                     let actividades = actividadesCurso.filter(a => a.curso === curso);
@@ -10331,7 +10006,6 @@
             
             doc.save(`Informe_Cursos_${formatDateTimeFile()}.pdf`);
             showToast('Informe generado correctamente', 'success');
-            console.log('[INFORME] === Informe por curso generado ===');
             
             } catch (error) {
                 console.error('[INFORME] Error en informe por curso:', error);
@@ -10340,7 +10014,6 @@
         }
 
         function generateInformeTrimestre() {
-            console.log('[INFORME] === Generando informe por trimestre ===');
             try {
                 // Verificar que jsPDF está disponible
                 if (!window.jspdf) {
@@ -10488,7 +10161,6 @@
 
         function generateCuadranteGlobal() {
             try {
-                console.log('[CUADRANTE] === INICIANDO GENERACIÓN DEL CUADRANTE GLOBAL ===');
                 
                 const container = document.getElementById('resultadoCuadranteGlobal');
                 if (!container) {
@@ -10498,13 +10170,11 @@
                 }
                 
                 const tipoSeleccionado = document.getElementById('cuadranteTipoActividad')?.value || 'ambas';
-                console.log('[CUADRANTE] Tipo seleccionado:', tipoSeleccionado);
                 
                 // Obtener actividades EE
                 let actividadesCurso = [];
                 try {
                     actividadesCurso = getActividadesCursoActivo();
-                    console.log('[CUADRANTE] Actividades EE obtenidas:', Array.isArray(actividadesCurso) ? actividadesCurso.length : 'NO ES ARRAY', actividadesCurso);
                 } catch (e) {
                     console.error('[CUADRANTE] Error al obtener actividades EE:', e);
                     actividadesCurso = [];
@@ -10514,21 +10184,17 @@
                 let ccData = [];
                 try {
                     ccData = Array.isArray(actividadesCC) ? actividadesCC : [];
-                    console.log('[CUADRANTE] Actividades CC obtenidas:', ccData.length);
                 } catch (e) {
                     console.error('[CUADRANTE] Error al acceder a actividadesCC:', e);
                     ccData = [];
                 }
-                
-                console.log('[CUADRANTE] Resumen - EE:', actividadesCurso.length, '| CC:', ccData.length);
-                
+
                 let html = '';
                 
                 // =============================================
                 // CUADRANTE DE ACTIVIDADES EXTRAESCOLARES (EE)
                 // =============================================
                 if (tipoSeleccionado === 'ambas' || tipoSeleccionado === 'EE') {
-                    console.log('[CUADRANTE] Generando cuadrante EE...');
                     
                     html += `
                         <div class="mt-4 rounded-xl overflow-hidden" style="border: 2px solid #3b82f6;">
@@ -10565,9 +10231,7 @@
                     // Verificar que CURSOS y TRIMESTRES existen
                     const cursosDisponibles = (typeof CURSOS !== 'undefined') ? CURSOS : ['1º ESO', '2º ESO', '3º ESO', '4º ESO'];
                     const trimestresDisponibles = (typeof TRIMESTRES !== 'undefined') ? TRIMESTRES : ['Primer Trimestre', 'Segundo Trimestre', 'Tercer Trimestre'];
-                    
-                    console.log('[CUADRANTE] Cursos:', cursosDisponibles, '| Trimestres:', trimestresDisponibles);
-                    
+
                     cursosDisponibles.forEach((curso) => {
                         html += `<tr>`;
                         
@@ -10643,14 +10307,12 @@
                         </div>
                     `;
                     
-                    console.log('[CUADRANTE] Cuadrante EE generado');
                 }
                 
                 // ================================================
                 // CUADRANTE DE ACTIVIDADES COMPLEMENTARIAS (CC)
                 // ================================================
                 if ((tipoSeleccionado === 'ambas' || tipoSeleccionado === 'CC') && ccData.length > 0) {
-                    console.log('[CUADRANTE] Generando cuadrante CC...');
                     
                     // Obtener unidades únicas
                     const unidades = [...new Set(ccData.map(a => a.unidad).filter(Boolean))].sort();
@@ -10754,7 +10416,6 @@
                         </div>
                     `;
                     
-                    console.log('[CUADRANTE] Cuadrante CC generado');
                 } else if ((tipoSeleccionado === 'ambas' || tipoSeleccionado === 'CC') && ccData.length === 0) {
                     // Mostrar mensaje si no hay datos CC
                     html += `
@@ -10796,12 +10457,9 @@
                     </div>
                 `;
                 
-                console.log('[CUADRANTE] Estableciendo HTML en el contenedor...');
                 container.innerHTML = html;
                 container.classList.remove('hidden');
-                
-                console.log('[CUADRANTE] === CUADRANTE GENERADO CORRECTAMENTE ===');
-                
+
             } catch (error) {
                 console.error('[CUADRANTE] ERROR CRÍTICO:', error);
                 alert('Error al generar el cuadrante global: ' + error.message + '\\nRevisa la consola (F12) para más detalles.');
@@ -10830,9 +10488,7 @@
                     showToast('La librería PDF no está cargada', 'error');
                     return;
                 }
-                
-                console.log('[PDF] Generando Cuadrante Global en PDF...');
-                
+
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF('landscape'); // Horizontal para cuadrante
                 
@@ -10912,7 +10568,6 @@
                 
                 doc.save(`Cuadrante_Global_${formatDateTimeFile()}.pdf`);
                 showToast('PDF del Cuadrante Global generado correctamente', 'success');
-                console.log('[PDF] Cuadrante Global generado');
                 
             } catch (error) {
                 console.error('[PDF] Error:', error);
@@ -10932,10 +10587,7 @@
             const actividades = actividadesCurso.filter(a => 
                 a.profesorado && Array.isArray(a.profesorado) && a.profesorado.includes(profesor)
             );
-            
-            console.log('Profesor seleccionado:', profesor);
-            console.log('Actividades encontradas:', actividades.length);
-            
+
             if (actividades.length === 0) {
                 showToast('Este profesor no tiene actividades registradas', 'warning');
                 return;
@@ -11211,11 +10863,6 @@
             return `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}_${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}`;
         }
 
-        function formatTime() {
-            const now = new Date();
-            return now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-        }
-
         // Límite máximo de toasts visibles
         const MAX_VISIBLE_TOASTS = 5;
         
@@ -11241,9 +10888,6 @@
             }, 3000);
         }
 
-        // Iniciar escucha de cambios en Firebase
-        listenToFirebaseChanges();
-        
         // Cerrar modales con tecla Escape
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -11278,7 +10922,6 @@
                 }
             }
         });
-    
 
 // ==================== ACTIVIDADES CC (COMPLEMENTARIAS) ====================
 
@@ -11290,23 +10933,15 @@ let editingCCId = null; // actividad CC cargada actualmente en el formulario de 
  * Carga actividades CC desde localStorage/Firebase
  */
 function cargarActividadesCC() {
-    console.log('[CC] === Iniciando carga de actividades CC ===');
-    console.log('[CC] dbRef disponible:', typeof dbRef !== 'undefined' && dbRef ? 'SÍ' : 'NO');
     
     // Intentar cargar desde Firebase primero
     if (typeof dbRef !== 'undefined' && dbRef) {
-        console.log('[CC] Intentando cargar desde Firebase...');
         dbRef.child('actividadesCC').once('value', function(snapshot) {
-            console.log('[CC] Firebase snapshot exists:', snapshot.exists());
             
             if (snapshot.exists()) {
                 const data = snapshot.val();
-                console.log('[CC] Datos crudos de Firebase:', data);
-                console.log('[CC] Tipo de dato:', typeof data, Array.isArray(data) ? 'Array' : 'Object');
                 
                 actividadesCC = Array.isArray(data) ? data : Object.values(data);
-                console.log('[CC] Actividades cargadas:', actividadesCC.length);
-                console.log('[CC] Lista de IDs:', actividadesCC.map(a => a.id));
                 
                 // Guardar copia en localStorage como backup
                 localStorage.setItem('aaccee_actividades_cc', JSON.stringify(actividadesCC));
@@ -11314,22 +10949,18 @@ function cargarActividadesCC() {
                 renderizarListaCC();
                 actualizarSelectorCCEdit();
             } else {
-                console.log('[CC] No hay datos en Firebase, intentando localStorage...');
                 // Si no hay en Firebase, intentar localStorage
                 const stored = localStorage.getItem('aaccee_actividades_cc');
-                console.log('[CC] Datos en localStorage:', stored ? 'EXISTEN' : 'VACÍO');
                 
                 if (stored) {
                     try {
                         actividadesCC = JSON.parse(stored);
-                        console.log('[CC] Actividades cargadas desde localStorage:', actividadesCC.length);
                         renderizarListaCC();
                         actualizarSelectorCCEdit();
                     } catch (e) {
                         console.error('[CC] Error al parsear localStorage:', e);
                     }
                 } else {
-                    console.log('[CC] No hay datos en ninguna fuente');
                     actividadesCC = [];
                     renderizarListaCC();
                     actualizarSelectorCCEdit();
@@ -11342,7 +10973,6 @@ function cargarActividadesCC() {
             if (stored) {
                 try {
                     actividadesCC = JSON.parse(stored);
-                    console.log('[CC] Actividades cargadas tras error Firebase:', actividadesCC.length);
                     renderizarListaCC();
                     actualizarSelectorCCEdit();
                 } catch (e) {
@@ -11352,14 +10982,11 @@ function cargarActividadesCC() {
         });
     } else {
         // Solo localStorage
-        console.log('[CC] Cargando solo desde localStorage...');
         const stored = localStorage.getItem('aaccee_actividades_cc');
-        console.log('[CC] Datos en localStorage:', stored ? 'EXISTEN' : 'VACÍO');
         
         if (stored) {
             try {
                 actividadesCC = JSON.parse(stored);
-                console.log('[CC] Actividades cargadas:', actividadesCC.length);
                 renderizarListaCC();
                 actualizarSelectorCCEdit();
             } catch (e) {
@@ -11578,14 +11205,9 @@ function cargarActividadCCEditar(id) {
  * Renderiza la lista de actividades CC
  */
 function renderizarListaCC() {
-    console.log('[CC] === Renderizando lista de actividades CC ===');
-    console.log('[CC] Total de actividades en memoria:', actividadesCC.length);
     
     const container = document.getElementById('ccListaActividades');
     const contador = document.getElementById('ccContadorActividades');
-
-    console.log('[CC] Contenedor encontrado:', container ? 'SÍ' : 'NO');
-    console.log('[CC] Contador encontrado:', contador ? 'SÍ' : 'NO');
 
     if (!container) {
         console.error('[CC] ERROR: No se encuentra el contenedor ccListaActividades');
@@ -11610,7 +11232,6 @@ function renderizarListaCC() {
     // Si no hay actividades
     if (actividadesCCVisibles.length === 0) {
         container.innerHTML = '<p class="text-center py-6" style="color: var(--muted);">No hay actividades CC registradas aún.</p>';
-        console.log('[CC] Mostrando mensaje: No hay actividades');
         return;
     }
 
@@ -11621,12 +11242,9 @@ function renderizarListaCC() {
         return fechaA - fechaB;
     });
 
-    console.log('[CC] Actividades ordenadas para mostrar:', ordenadas.length);
-
     // Generar HTML
     let html = '';
     ordenadas.forEach((act, index) => {
-        console.log(`[CC]   ${index + 1}. ${act.nombre} (${act.unidad}) - ${act.fecha}`);
         
         const fechaFormateada = formatDate(act.fecha);
         
@@ -11665,7 +11283,7 @@ function renderizarListaCC() {
                                 ? `Publicada el ${new Date(act.fechaPublicacionCalendar).toLocaleDateString('es-ES', {day: 'numeric', month: 'short', year: 'numeric'})}`
                                 : 'Publicar esta actividad en Google Calendar';
                             
-                            return `<button onclick="publicarEnGoogleCalendarCC('${escapeHTML(act.nombre)}', '${act.fecha}', '${escapeHTML(act.descripcion || '')}', '${escapeHTML(act.unidad)}', '${act.id}')"
+                            return `<button onclick="publicarEnGoogleCalendarCC(${escapeJSAttr(act.nombre)}, ${escapeJSAttr(act.fecha)}, ${escapeJSAttr(act.descripcion || '')}, ${escapeJSAttr(act.unidad)}, ${escapeJSAttr(act.id)})"
                                     class="px-3 py-2 rounded-lg text-xs font-medium transition-all hover:scale-105 flex items-center gap-2 ${opacidadBtn}"
                                     style="background: linear-gradient(135deg, #4285f4 0%, #34a853 100%); color: white;"
                                     title="${tituloBtn}">
@@ -11680,7 +11298,6 @@ function renderizarListaCC() {
     });
 
     container.innerHTML = html;
-    console.log('[CC] Renderizado completado:', html.length, 'bytes de HTML generados');
 }
 
 /**
@@ -11935,11 +11552,7 @@ function eliminarTodasActividadesEE() {
     try {
         // Obtener ID del curso activo desde appData.config (la estructura correcta)
         const cursoId = appData && appData.config ? appData.config.cursoEscolarActivo : null;
-        
-        console.log('[ELIMINACIÓN MASIVA EE] Curso activo ID:', cursoId);
-        console.log('[ELIMINACIÓN MASIVA EE] appData.config:', appData ? 'existe' : 'NO existe');
-        console.log('[ELIMINACIÓN MASIVA EE] appData.config?.cursoEscolarActivo:', appData?.config?.cursoEscolarActivo);
-        
+
         if (!cursoId) {
             console.error('[ELIMINACIÓN MASIVA EE] ERROR: No hay curso activo');
             showToast('No se puede eliminar: no hay un curso escolar activo definido', 'error');
@@ -11950,7 +11563,6 @@ function eliminarTodasActividadesEE() {
         // sin curso se atribuyen por fecha y se eliminan con su curso)
         const actividadesAntes = appData.actividades.filter(a => getCursoEfectivoActividad(a) === cursoId);
         const cantidadAntesCurso = actividadesAntes.length;
-        console.log(`[ELIMINACIÓN MASIVA EE] Actividades del curso a eliminar: ${cantidadAntesCurso}`);
         
         // Filtrar: mantener solo las que NO son del curso actual
         appData.actividades = appData.actividades.filter(a => getCursoEfectivoActividad(a) !== cursoId);
@@ -11963,7 +11575,6 @@ function eliminarTodasActividadesEE() {
         // Guardar en Firebase si está disponible
         if (typeof dbRef !== 'undefined' && dbRef) {
             dbRef.child('actividades').set(appData.actividades)
-                .then(() => console.log('[EE] Actividades eliminadas de Firebase'))
                 .catch(err => console.warn('[EE] Error en Firebase:', err));
         }
         
@@ -11981,7 +11592,6 @@ function eliminarTodasActividadesEE() {
         inicializarEliminacionMasivaEE();
         
         showToast(`✅ Se han eliminado ${cantidadEliminadas} Actividades EE correctamente`, 'success');
-        console.log(`[ELIMINACIÓN MASIVA EE] Eliminadas ${cantidadEliminadas} actividades del curso ${cursoActivo.nombre}`);
         
     } catch (error) {
         console.error('[ELIMINACIÓN MASIVA EE] Error:', error);
@@ -12122,12 +11732,10 @@ function eliminarTodasActividadesCC() {
             const antes = actividadesCC.length;
             actividadesCC = actividadesCC.filter(a => getCursoEfectivoActividad(a) !== cursoId);
             cantidadEliminadas = antes - actividadesCC.length;
-            console.log(`[ELIMINACIÓN MASIVA CC] Eliminadas ${cantidadEliminadas} actividades del curso ${cursoId}`);
         } else {
             // Si no hay curso, eliminar todas (para compatibilidad)
             cantidadEliminadas = actividadesCC.length;
             actividadesCC = [];
-            console.log(`[ELIMINACIÓN MASIVA CC] Eliminadas TODAS las ${cantidadEliminadas} actividades (sin curso activo)`);
         }
         
         // Guardar cambios
@@ -12149,7 +11757,6 @@ function eliminarTodasActividadesCC() {
         }
         
         showToast(`✅ Se han eliminado ${cantidadEliminadas} Actividades CC correctamente`, 'success');
-        console.log(`[ELIMINACIÓN MASIVA CC] Eliminadas ${cantidadEliminadas} actividades CC`);
         
     } catch (error) {
         console.error('[ELIMINACIÓN MASIVA CC] Error:', error);
@@ -12232,11 +11839,11 @@ function guardarActividadesCC() {
     // Guardar en Firebase si está disponible
     if (typeof dbRef !== 'undefined' && dbRef) {
         dbRef.child('actividadesCC').set(actividadesCC)
-            .then(function() {
-                console.log('[CC] Guardado en Firebase correctamente');
-            })
             .catch(function(error) {
                 console.warn('[CC] Error guardando en Firebase:', error);
+                if (typeof showToast === 'function') {
+                    showToast('Guardado en este dispositivo, pero no se pudo sincronizar con la nube', 'warning');
+                }
             });
     }
     
@@ -12768,8 +12375,6 @@ function renderNormativaUsuario() {
 }
 // ==================== IMPORTAR ACTIVIDADES CC ====================
 
-let actividadesCCParaImportar = [];
-
 /**
  * Carga cursos anteriores en el selector de importación
  */
@@ -12777,20 +12382,14 @@ function cargarCursosAnterioresCC() {
     const select = document.getElementById('ccImportCursoOrigen');
     if (!select) return;
 
-    console.log('[IMPORT] Cargando cursos anteriores para importación CC...');
-    
     // Usar appData.config (corregido: antes usaba 'config' que no existía)
     const cursos = appData?.config?.cursosEscolares || [];
     const cursoActualId = appData?.config?.cursoEscolarActivo;
-    
-    console.log('[IMPORT] Cursos disponibles:', cursos.length, '| Curso activo:', cursoActualId);
-    
+
     if (cursos.length > 0) {
         // Filtrar cursos diferentes al actual
         const cursosAnteriores = cursos.filter(c => c.id !== cursoActualId);
-        
-        console.log('[IMPORT] Cursos anteriores encontrados:', cursosAnteriores.length);
-        
+
         if (cursosAnteriores.length > 0) {
             select.innerHTML = '<option value="">Selecciona un curso anterior...</option>';
             cursosAnteriores.forEach(curso => {
@@ -12816,13 +12415,9 @@ function cargarActividadesCCAnteriores() {
         return;
     }
 
-    console.log('[IMPORT CC] Cargando actividades del curso:', cursoId);
-    
     // Filtrar actividades CC del curso seleccionado
     const actividadesDelCurso = actividadesCC.filter(act => act.cursoEscolarId === cursoId);
-    
-    console.log('[IMPORT CC] Actividades encontradas:', actividadesDelCurso.length);
-    
+
     const listaContainer = document.getElementById('ccImportActividades');
     const listaWrapper = document.getElementById('ccImportLista');
     const sinCursosMsg = document.getElementById('ccSinCursosAnteriores');
@@ -12881,7 +12476,6 @@ function cargarActividadesCCAnteriores() {
     // Actualizar contador y estado del botón
     actualizarContadorCCImport();
     
-    console.log(`[IMPORT CC] Mostradas ${actividadesDelCurso.length} actividades para importar`);
 }
 
 /**
@@ -13008,7 +12602,6 @@ function importarActividadesCCSeleccionadas() {
 
 // Estado del calendario CC
 let calendarioCCOffset = 0; // 0 = semana actual (con -1 de offset inicial para mostrar semana anterior + 2 posteriores)
-let calendarioCCSemanaActual = null;
 
 // Nombres de meses en español
 const MESES_CC = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
@@ -13206,7 +12799,7 @@ function renderizarCalendarioCC() {
                             <div class="font-medium truncate">${escapeHTML(act.nombre)}</div>
                             <div class="opacity-80 truncate text-[10px]">${escapeHTML(act.unidad)}</div>
                             ${esPublicada ? '<div class="mt-1 flex items-center gap-1 text-[9px]"><span class="w-1.5 h-1.5 rounded-full bg-green-300"></span><span>En Calendar</span></div>' : ''}
-                            <button onclick="event.stopPropagation(); publicarEnGoogleCalendarCC('${escapeHTML(act.nombre)}', '${act.fecha}', '${escapeHTML(act.descripcion || '')}', '${escapeHTML(act.unidad)}', '${act.id}')"
+                            <button onclick="event.stopPropagation(); publicarEnGoogleCalendarCC(${escapeJSAttr(act.nombre)}, ${escapeJSAttr(act.fecha)}, ${escapeJSAttr(act.descripcion || '')}, ${escapeJSAttr(act.unidad)}, ${escapeJSAttr(act.id)})"
                                     class="mt-1 w-full text-[10px] px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-all flex items-center justify-center gap-1 ${opacidadBoton}"
                                     style="${esPublicada ? 'cursor: default;' : ''}"
                                     title="${tituloBoton}">
@@ -13580,7 +13173,7 @@ function actualizarListaSemanaCC(inicio, fin) {
                             ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>'
                             : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>';
                         
-                        return `<button onclick="publicarEnGoogleCalendarCC('${escapeHTML(act.nombre)}', '${act.fecha}', '${escapeHTML(act.descripcion || '')}', '${escapeHTML(act.unidad)}', '${act.id}')"
+                        return `<button onclick="publicarEnGoogleCalendarCC(${escapeJSAttr(act.nombre)}, ${escapeJSAttr(act.fecha)}, ${escapeJSAttr(act.descripcion || '')}, ${escapeJSAttr(act.unidad)}, ${escapeJSAttr(act.id)})"
                                 class="mt-2 text-xs px-3 py-1.5 rounded-lg transition-all hover:scale-105 flex items-center gap-2 ${opacidadBtn}"
                                 style="background: linear-gradient(135deg, #4285f4 0%, #34a853 100%); color: white;">
                             ${iconoSvg}
@@ -13879,20 +13472,41 @@ function setPeriodoInforme(tipo, prefijo) {
         const ultimoDia = new Date(año, mes + 1, 0).getDate();
         inputHasta.value = `${año}-${String(mes + 1).padStart(2, '0')}-${ultimoDia}`;
     } else if (tipo === 'trimestre') {
-        let mesInicio, mesFin;
-        if (mes < 4) { mesInicio = 0; mesFin = 2; }
-        else if (mes < 8) { mesInicio = 3; mesFin = 5; }
-        else { mesInicio = 6; mesFin = 8; }
-        inputDesde.value = `${año}-${String(mesInicio + 1).padStart(2, '0')}-01`;
-        const ultimoDiaTrim = new Date(año, mesFin + 1, 0).getDate();
-        inputHasta.value = `${año}-${String(mesFin + 1).padStart(2, '0')}-${ultimoDiaTrim}`;
+        // Trimestre ESCOLAR (no el natural): T1 = sep-dic, T2 = ene-mar,
+        // T3 = abr-jun; en jul/ago se ofrece el T1 del curso que arranca en
+        // septiembre. Si el centro configuró fechas de trimestres
+        // (Configuración → Trimestres), estas tienen prioridad.
+        const trimestresConf = appData?.config?.trimestres || {};
+        const listaConf = [trimestresConf.t1, trimestresConf.t2, trimestresConf.t3];
+        let confActual = null;
+        for (const tr of listaConf) {
+            if (tr && tr.start && tr.end) {
+                const ini = new Date(tr.start + 'T00:00:00').getTime();
+                const fin = new Date(tr.end + 'T23:59:59').getTime();
+                if (hoy.getTime() >= ini && hoy.getTime() <= fin) {
+                    confActual = tr;
+                    break;
+                }
+            }
+        }
+        if (confActual) {
+            inputDesde.value = formatearFechaISO(confActual.start);
+            inputHasta.value = formatearFechaISO(confActual.end);
+        } else {
+            let mesInicio, mesFin;
+            if (mes >= 8) { mesInicio = 8; mesFin = 11; }      // T1: sep-dic
+            else if (mes < 3) { mesInicio = 0; mesFin = 2; }   // T2: ene-mar
+            else if (mes < 6) { mesInicio = 3; mesFin = 5; }   // T3: abr-jun
+            else { mesInicio = 8; mesFin = 11; }               // jul-ago: T1 próximo
+            inputDesde.value = `${año}-${String(mesInicio + 1).padStart(2, '0')}-01`;
+            const ultimoDiaTrim = new Date(año, mesFin + 1, 0).getDate();
+            inputHasta.value = `${año}-${String(mesFin + 1).padStart(2, '0')}-${ultimoDiaTrim}`;
+        }
     } else if (tipo === 'curso') {
         // ✅ CORREGIDO: Usar fechas del curso escolar activo
         const fechaDesde = obtenerFechaInicioCursoActivo();
         const fechaHasta = obtenerFechaFinCursoActivo();
-        
-        console.log('[PERÍODO] Curso escolar activo - Desde:', fechaDesde, 'Hasta:', fechaHasta);
-        
+
         inputDesde.value = fechaDesde;
         inputHasta.value = fechaHasta;
     }
@@ -14325,9 +13939,7 @@ function imprimirInforme(tipo) {
         
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
-        
-        console.log('[PDF] Generando PDF para:', tipo);
-        
+
         // Determinar tipo y generar contenido apropiado
         if (tipo.startsWith('cc') || tipo.includes('cc')) {
             generarPDFCC(doc, tipo);
@@ -15169,7 +14781,6 @@ function generateResumenEE() {
                 if (textEl) textEl.textContent = version;
                 chip.classList.remove('hidden');
             });
-            console.log('[SW] Versión de la app:', version);
         }
 
         // ---------- Estrategia 1: protocolo de mensajes (GET_VERSION) ----------
@@ -15184,7 +14795,6 @@ function generateResumenEE() {
                 };
                 sw.postMessage({ type: 'GET_VERSION' }, [canal.port2]);
             } catch (err) {
-                console.log('[SW] No se pudo solicitar la versión por mensajes:', err);
             }
         }
 
@@ -15252,7 +14862,6 @@ function generateResumenEE() {
         function initServiceWorker() {
             navigator.serviceWorker.register('./sw.js', { scope: './' })
                 .then(function (registro) {
-                    console.log('[SW] Registrado. Alcance:', registro.scope);
 
                     // Resolución inicial de la versión
                     if (navigator.serviceWorker.controller) {
@@ -15284,7 +14893,6 @@ function generateResumenEE() {
                     });
                 })
                 .catch(function (err) {
-                    console.log('[SW] No se pudo registrar el Service Worker:', err);
                 });
         }
 
@@ -15361,7 +14969,6 @@ function generateResumenEE() {
             e.preventDefault();
             deferredPrompt = e;
             mostrarBotonesInstalar();
-            console.log('[PWA] Instalación disponible (beforeinstallprompt)');
         });
 
         window.addEventListener('appinstalled', function () {
@@ -15377,7 +14984,6 @@ function generateResumenEE() {
             if (deferredPrompt) {
                 deferredPrompt.prompt();
                 deferredPrompt.userChoice.then(function (choice) {
-                    console.log('[PWA] Elección del usuario:', choice.outcome);
                     deferredPrompt = null;
                 }).catch(function () { deferredPrompt = null; });
             } else if (esIOS()) {
