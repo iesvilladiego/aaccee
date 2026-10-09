@@ -5236,7 +5236,32 @@
         let isSaving = false;
         let saveQueue = [];
         
-        async function saveToLocalStorage() {
+        // ==================== ESTADO DE SINCRONIZACIÓN MULTIUSUARIO ====================
+        // - ultimoLastUpdatedNube: sello «lastUpdated» de la nube tal y como lo
+        //   conoce esta sesión (al cargar o al escribir). Si cambia sin que lo
+        //   hayamos visto, otro dispositivo ha guardado datos.
+        // - ultimoSelloEscrito: el sello más reciente que ESTA sesión ha enviado
+        //   (aunque su confirmación no haya llegado): distingue un cambio propio
+        //   en vuelo de un cambio ajeno al comparar sellos.
+        // - contadorGuardadosLocales: guardados locales realizados; detecta si el
+        //   usuario editó mientras una carga estaba en vuelo (conexión lenta).
+        // - syncNubePausada: el usuario decidió NO sobrescribir la nube tras un
+        //   conflicto; los cambios se quedan solo en este dispositivo.
+        // - pendienteSyncNube/CC/Usuarios: guardados fallidos (p. ej. sin conexión)
+        //   que deben reintentarse al recuperar la red.
+        var ultimoLastUpdatedNube = null;
+        var ultimoSelloEscrito = null;
+        var contadorGuardadosLocales = 0;
+        var syncNubePausada = false;
+        var pendienteSyncNube = false;
+        var pendienteSyncCC = false;
+        var pendienteSyncUsuarios = false;
+        
+        // soloLocal=true persiste únicamente en localStorage sin reenviar nada a
+        // la nube: lo usa la carga inicial para no reescribir la nube con lo
+        // recién leído (el ciclo lectura→escritura pisaba cambios de otros
+        // usuarios guardados entre ambas operaciones)
+        async function saveToLocalStorage(soloLocal) {
             // Añadir a la cola si ya se está guardando
             if (isSaving) {
                 return new Promise(resolve => {
@@ -5245,6 +5270,9 @@
             }
             
             isSaving = true;
+            // Guardado local realizado (detección de ediciones durante una
+            // carga de la nube en vuelo)
+            contadorGuardadosLocales++;
             
             try {
                 // Atribuir curso escolar por fecha (1-sep → 31-ago) a las
@@ -5255,8 +5283,15 @@
                 
                 localStorage.setItem('aceManagerData', JSON.stringify(appData));
                 
+                // Sincronización en pausa: mantener actualizada la copia local de
+                // seguridad (tras una recarga prevalecería la nube y los cambios
+                // de este dispositivo se perderían)
+                if (typeof syncNubePausada !== 'undefined' && syncNubePausada) {
+                    try { localStorage.setItem('aceManagerData_conflicto', JSON.stringify(appData)); } catch (e) { /* cuota llena: seguir */ }
+                }
+                
                 // Sincronizar con Firebase (sin await para no bloquear)
-                if (typeof saveToFirebase === 'function') {
+                if (!soloLocal && typeof saveToFirebase === 'function') {
                     saveToFirebase().catch(err => {
                         console.error('Error al guardar en Firebase:', err);
                     });
@@ -5410,27 +5445,44 @@
                 const hasAdmin = usersData.some(u => u.id === 'admin_default');
                 
                 if (!hasAdmin) {
-                    
-                    const newAdmin = {...DEFAULT_ADMIN};
-                    newAdmin.password = await hashPassword(newAdmin.password);
-                    newAdmin.passwordHashed = true;
-                    
-                    usersData.push(newAdmin);
-                    
-                    // Guardar en localStorage
-                    localStorage.setItem('aaccee_users', JSON.stringify(usersData));
-                    
-                    // Solo guardar en Firebase si estaba vacío (NO sobrescribir datos existentes)
-                    if (!firebaseData || !firebaseData.users || firebaseData.users.length === 0) {
+                    // Respetar una eliminación externa del admin: solo se recrea
+                    // si nunca se marcó la inicialización o si no queda ningún
+                    // usuario con el que iniciar sesión (evitar bloqueo total)
+                    let adminYaInicializado = adminInitializedFlag;
+                    if (!adminYaInicializado) {
                         try {
-                            await saveUsersToFirebase();
+                            const snapMeta = await dbRef.child('meta/adminInitialized').once('value');
+                            adminYaInicializado = !!snapMeta.val();
+                            adminInitializedFlag = adminYaInicializado;
                         } catch (e) {
-                            console.warn('[AUTH]    ⚠️ No se pudo guardar admin en Firebase:', e.message);
+                            // Sin acceso a la nube: intentar la recreación
+                        }
+                    }
+                    
+                    if (adminYaInicializado && usersData.length > 0) {
+                        console.warn('[AUTH] El usuario admin_default no existe y ya fue inicializado previamente: no se recrea');
+                    } else {
+                        const newAdmin = {...DEFAULT_ADMIN};
+                        newAdmin.password = await hashPassword(newAdmin.password);
+                        newAdmin.passwordHashed = true;
+                        
+                        usersData.push(newAdmin);
+                        
+                        // Guardar en localStorage
+                        localStorage.setItem('aaccee_users', JSON.stringify(usersData));
+                        
+                        // Solo guardar en Firebase si estaba vacío (NO sobrescribir datos existentes)
+                        if (!firebaseData || !firebaseData.users || firebaseData.users.length === 0) {
+                            try {
+                                await saveUsersToFirebase();
+                                await markAdminAsInitialized();
+                            } catch (e) {
+                                console.warn('[AUTH]    ⚠️ No se pudo guardar admin en Firebase:', e.message);
+                            }
                         }
                     }
                 }
-                
-                // Hashear contraseñas pendientes
+                                // Hashear contraseñas pendientes
                 await hashPasswordsIfNeeded();
                 
                 return usersData;
@@ -5479,6 +5531,12 @@
                     console.error('[SAVE] ⚠️ Error guardando en Firebase:', firebaseError);
                     console.error('[SAVE] ⚠️ Los datos están en localStorage pero NO en Firebase');
                     console.error('[SAVE] ⚠️ Esto causará problemas en otros dispositivos/navegadores');
+                    // Avisar al usuario: sin este aviso, un usuario creado o
+                    // editado «desaparece» en otros dispositivos sin explicación
+                    pendienteSyncUsuarios = true;
+                    if (typeof showToast === 'function') {
+                        showToast('Usuarios guardados en este dispositivo, pero NO en la nube: otros dispositivos no verán los cambios. Se reintentará al reconectar.', 'warning');
+                    }
                     // No lanzamos error para no romper el flujo, pero advertimos
                 }
             }
@@ -6522,7 +6580,7 @@
                     try {
                         localStorage.setItem('aaccee_actividades_cc', JSON.stringify(actividadesCC));
                         if (typeof dbRef !== 'undefined' && dbRef) {
-                            dbRef.child('actividadesCC').set(actividadesCC).catch(() => {});
+                            dbRef.child('actividadesCC').set(actividadesCC).catch(err => console.warn('[CC] No se pudo sincronizar la atribución de curso con la nube:', err));
                         }
                     } catch (e) { /* sin consecuencias: la atribución en memoria ya funciona */ }
                 }
@@ -9297,67 +9355,173 @@
         // Referencia a la base de datos
         const dbRef = database.ref(FIREBASE_PATH);
         
+        // Comprobar conflictos multiusuario antes de escribir en la nube.
+        // Compara el «lastUpdated» remoto con el último conocido por esta
+        // sesión: si difiere (y no es un sello propio en vuelo), otro
+        // dispositivo guardó datos y conviene avisar antes de sobrescribir.
+        // Devuelve true si la escritura debe abortarse. La decisión del
+        // usuario se respeta durante toda la sesión.
+        var comprobandoConflicto = null;
+        function comprobarConflictoNube() {
+            if (syncNubePausada) return Promise.resolve(true);
+            // Mutex: mientras se lee o se pregunta, las demás escrituras
+            // esperan la misma decisión en lugar de apilar diálogos
+            if (comprobandoConflicto) return comprobandoConflicto;
+            comprobandoConflicto = (async function () {
+                try {
+                    const snap = await dbRef.child('lastUpdated').once('value');
+                    const remoto = snap.val();
+                    if (remoto && remoto !== ultimoLastUpdatedNube && remoto > (ultimoSelloEscrito || '')) {
+                        const continuar = confirm(
+                            'Los datos de la nube han cambiado desde tu última carga (otro dispositivo los ha guardado).\n\n' +
+                            'Si guardas ahora, esos cambios podrían perderse. ¿Quieres guardar de todos modos?');
+                        if (continuar) {
+                            // El usuario asume la sobrescritura: tomar el sello
+                            // remoto como conocido para no volver a preguntar
+                            ultimoLastUpdatedNube = remoto;
+                        } else {
+                            syncNubePausada = true;
+                            // Copia de seguridad local de la versión del usuario
+                            try {
+                                localStorage.setItem('aceManagerData_conflicto', JSON.stringify(appData));
+                                localStorage.setItem('aaccee_actividades_cc_conflicto', JSON.stringify(actividadesCC));
+                            } catch (e) {
+                                console.warn('[SYNC] No se pudo guardar la copia de seguridad del conflicto:', e);
+                            }
+                            showToast('Sincronización con la nube en pausa: tus cambios se guardan solo en este dispositivo (con copia de seguridad local). Recarga la página para tomar la versión de la nube.', 'warning');
+                        }
+                    } else if (remoto && remoto !== ultimoLastUpdatedNube) {
+                        // Cambio propio conocido (sello en vuelo o ya asumido)
+                        ultimoLastUpdatedNube = remoto;
+                    }
+                } catch (e) {
+                    // Sin acceso a la nube (p. ej. sin conexión): no bloquear el
+                    // guardado local; se reintentará al reconectar
+                }
+                const abortar = syncNubePausada;
+                comprobandoConflicto = null;
+                return abortar;
+            })();
+            return comprobandoConflicto;
+        }
+        
         // Guardar datos en Firebase (SIN borrar usuarios)
         async function saveToFirebase() {
+            if (syncNubePausada) return;
             try {
+                if (await comprobarConflictoNube()) return;
+                const sello = new Date().toISOString();
+                // Registrar el sello ANTES de enviarlo: si otra escritura de
+                // esta misma sesión lo ve en la nube, sabrá que es propio
+                if (!ultimoSelloEscrito || sello > ultimoSelloEscrito) ultimoSelloEscrito = sello;
                 // Usar update() en lugar de set() para NO borrar 'users'
                 await dbRef.update({
                     config: appData.config,
                     actividades: appData.actividades,
                     enlacesNormativa: appData.enlacesNormativa || [],
-                    lastUpdated: new Date().toISOString()
+                    lastUpdated: sello
                 });
+                ultimoLastUpdatedNube = sello;
+                pendienteSyncNube = false;
             } catch (error) {
                 console.error('Error al guardar en Firebase:', error);
-                showToast('Error al guardar en la nube', 'error');
+                pendienteSyncNube = true;
+                showToast('Error al guardar en la nube: se reintentará al reconectar', 'error');
             }
         }
         
-        // Cargar datos desde Firebase
+        // Reintento de sincronización al recuperar la conexión: sube a la nube
+        // los cambios que quedaron pendientes por fallos de red. Lo invoca el
+        // listener «online» del bloque PWA.
+        window.reintentarSincronizacionNube = async function () {
+            if (typeof firebase === 'undefined' || !firebase.database) return 0;
+            if (typeof syncNubePausada !== 'undefined' && syncNubePausada) return 0;
+            let reintentos = 0;
+            if (pendienteSyncNube) {
+                pendienteSyncNube = false;
+                await saveToFirebase();
+                reintentos++;
+            }
+            if (pendienteSyncCC) {
+                pendienteSyncCC = false;
+                guardarActividadesCC();
+                reintentos++;
+            }
+            if (pendienteSyncUsuarios) {
+                pendienteSyncUsuarios = false;
+                try {
+                    await saveUsersToFirebase();
+                    showToast('Usuarios sincronizados con la nube', 'success');
+                } catch (e) {
+                    pendienteSyncUsuarios = true;
+                    console.warn('[SYNC] Reintento de sincronizar usuarios fallido:', e);
+                }
+            }
+            return reintentos;
+        };
+                // Cargar datos desde Firebase
         async function loadFromFirebase() {
+            // Guardados locales realizados hasta iniciar la carga: si el
+            // usuario edita mientras la respuesta viaja (conexión lenta), no
+            // se sobrescriben sus cambios con la versión de la nube
+            const guardadosAlIniciar = contadorGuardadosLocales;
             try {
                 const snapshot = await dbRef.once('value');
                 const data = snapshot.val();
                 
                 if (data) {
-                    if (data.config) {
-                        appData.config = { ...appData.config, ...data.config };
-                    }
-                    if (data.actividades) {
-                        appData.actividades = data.actividades;
-                    }
-                    // Cargar enlaces de normativa (si existen)
-                    if (Array.isArray(data.enlacesNormativa)) {
-                        appData.enlacesNormativa = data.enlacesNormativa;
-                    }
+                    // Sello de la nube conocido por esta sesión: base para la
+                    // detección de conflictos multiusuario al guardar
+                    ultimoLastUpdatedNube = data.lastUpdated || null;
                     
-                    // Normalizar enlacesNormativa
-                    if (!Array.isArray(appData.enlacesNormativa)) {
-                        appData.enlacesNormativa = [];
+                    if (contadorGuardadosLocales > guardadosAlIniciar) {
+                        // El usuario editó mientras cargaba: conservar sus cambios
+                        // locales y no aplicar la versión de la nube
+                        showToast('Se conservaron los cambios hechos en este dispositivo; no se aplicó la versión de la nube para no perderlos', 'warning');
+                    } else {
+                        if (data.config) {
+                            appData.config = { ...appData.config, ...data.config };
+                        }
+                        if (data.actividades) {
+                            appData.actividades = data.actividades;
+                        }
+                        // Cargar enlaces de normativa (si existen)
+                        if (Array.isArray(data.enlacesNormativa)) {
+                            appData.enlacesNormativa = data.enlacesNormativa;
+                        }
+                        
+                        // Normalizar enlacesNormativa
+                        if (!Array.isArray(appData.enlacesNormativa)) {
+                            appData.enlacesNormativa = [];
+                        }
+                        
+                        // CRÍTICO: Asegurar que unidadesPorCurso siempre exista después de cargar de Firebase
+                        if (!appData.config.unidadesPorCurso) {
+                            appData.config.unidadesPorCurso = {};
+                        }
+                        
+                        // CRÍTICO: Asegurar que unidadesDefecto siempre exista
+                        if (!appData.config.unidadesDefecto) {
+                            appData.config.unidadesDefecto = {
+                                cursos: ['1º ESO', '2º ESO', '3º ESO', '4º ESO'],
+                                unidades: ['1º A', '1º B', '2º A', '2º B', '3º A', '3º B', '4º A', '4º B']
+                            };
+                        }
+                        
+                        // Ejecutar migración de datos antiguos (ej: "1 ESO" -> "1º ESO")
+                        migrarDatosAntiguos();
+                        
+                        // Persistir en localStorage SIN reenviar a la nube: el ciclo
+                        // lectura→escritura pisaría los cambios que otro usuario
+                        // guardara entre ambas operaciones
+                        saveToLocalStorage(true);
+                        renderAll();
                     }
-                    
-                    // CRÍTICO: Asegurar que unidadesPorCurso siempre exista después de cargar de Firebase
-                    if (!appData.config.unidadesPorCurso) {
-                        appData.config.unidadesPorCurso = {};
-                    }
-                    
-                    // CRÍTICO: Asegurar que unidadesDefecto siempre exista
-                    if (!appData.config.unidadesDefecto) {
-                        appData.config.unidadesDefecto = {
-                            cursos: ['1º ESO', '2º ESO', '3º ESO', '4º ESO'],
-                            unidades: ['1º A', '1º B', '2º A', '2º B', '3º A', '3º B', '4º A', '4º B']
-                        };
-                    }
-                    
-                    // Ejecutar migración de datos antiguos (ej: "1 ESO" -> "1º ESO")
-                    migrarDatosAntiguos();
-                    
-                    saveToLocalStorage();
-                    renderAll();
                 }
                 
-                // También cargar usuarios
-                await loadUsersFromFirebase();
+                // También cargar usuarios (misma rutina canónica que el login:
+                // nube → localStorage → admin de emergencia)
+                await loadUsersFromStorage();
                 
                 // Actualizar UI de usuarios si es admin
                 if (currentUser && currentUser.rol === 'admin') {
@@ -9368,23 +9532,22 @@
                 showToast('Error al cargar desde la nube', 'error');
             }
         }
-        
-        // ==================== FIREBASE USER SYNC ====================
+                // ==================== FIREBASE USER SYNC ====================
         
         // Referencia a usuarios en Firebase
         const usersDbRef = database.ref(FIREBASE_PATH + '/users');
         
-        // Referencia a configuración del sistema en Firebase
-        const configDbRef = database.ref(FIREBASE_PATH + '/config');
         
         // Bandera para controlar si el admin ya fue inicializado (evita recrearlo en nuevos navegadores)
         let adminInitializedFlag = false;
         
         // Verificar si el admin ya fue inicializado en Firebase
-        // Marcar el admin como inicializado en Firebase
+        // Marcar el admin como inicializado en Firebase.
+        // Se guarda bajo meta/ (fuera de config/): saveToFirebase reemplaza el
+        // nodo config completo con update() y borraría el flag si viviera ahí
         async function markAdminAsInitialized() {
             try {
-                await configDbRef.child('adminInitialized').set(true);
+                await dbRef.update({ 'meta/adminInitialized': true });
                 adminInitializedFlag = true;
             } catch (error) {
                 console.error('Error al marcar admin como inicializado:', error);
@@ -9403,41 +9566,19 @@
             } catch (error) {
                 console.error('[FIREBASE SAVE] ❌ Error al guardar usuarios:', error);
                 console.error('[FIREBASE SAVE] Detalle:', error.message, error.code);
+                // Relanzar: los llamadores (p. ej. saveUsersToStorage) tienen sus
+                // propios try/catch y así pueden avisar de que el cambio NO
+                // llegó a la nube (antes este catch lo tragaba y sus avisos
+                // eran código muerto)
+                throw error;
             }
         }
         
-        // Cargar usuarios desde Firebase
-        async function loadUsersFromFirebase() {
-            try {
-                const snapshot = await usersDbRef.once('value');
-                const data = snapshot.val();
-
-                if (data && data.users && Array.isArray(data.users) && data.users.length > 0) {
-                    const usuariosAntes = usersData.length;
-                    usersData = data.users;
-                    
-                    // Solo agregar admin si no existe Y no fue inicializado previamente en Firebase
-                    if (!usersData.find(u => u.id === 'admin_default') && !adminInitializedFlag) {
-                        const newAdmin = {...DEFAULT_ADMIN};
-                        newAdmin.password = await hashPassword(newAdmin.password);
-                        newAdmin.passwordHashed = true;
-                        usersData.push(newAdmin);
-                        await markAdminAsInitialized();
-                    }
-                    
-                    saveUsersToStorage();
-                    return true; // Éxito
-                } else {
-                    return false; // Sin datos
-                }
-            } catch (error) {
-                console.error('[FIREBASE USERS] ❌ Error al cargar usuarios:', error);
-                showToast('No se pudieron sincronizar usuarios desde la nube', 'warning');
-                return false; // Error
-            }
-        }
-
-        // ==================== IMPORTACIÓN MASIVA DE ACTIVIDADES ====================
+        // (Carga de usuarios: unificada en loadUsersFromStorage, que ya sigue la
+        // cascada nube → localStorage → admin de emergencia. La antigua
+        // loadUsersFromFirebase duplicaba esa lógica y podía reescribir la nube
+        // justo después de leerla, pisando cambios de otros usuarios.)
+                // ==================== IMPORTACIÓN MASIVA DE ACTIVIDADES ====================
         
         // Almacenamiento temporal para las actividades a importar
         let actividadesPendientesImportacion = [];
@@ -10063,13 +10204,24 @@
 
         // ==================== PDF REPORTS ====================
         
-        // Función auxiliar para determinar si una actividad está realizada
+        // Función auxiliar para determinar si una actividad está realizada.
+        // Una actividad marcada como «No realizada» (cancelada) nunca cuenta
+        // como realizada aunque tenga fecha o profesorado asignado (mismo
+        // criterio que la lista de curso anterior y el informe por departamento).
+        // Tolerante con fechas no textuales (importaciones de Excel).
         function esActividadRealizada(act) {
-            return (act.fecha && act.fecha.trim() !== '') || 
-                   (act.profesorado && Array.isArray(act.profesorado) && act.profesorado.length > 0);
+            if (!act || act.noRealizada === true) return false;
+            const tieneFecha = act.fecha !== undefined && act.fecha !== null && String(act.fecha).trim() !== '';
+            const tieneProfesorado = act.profesorado && Array.isArray(act.profesorado) && act.profesorado.length > 0;
+            return tieneFecha || tieneProfesorado;
         }
         
-        // Obtener niveles seleccionados en el informe por curso
+        // Trunca un texto para tablas PDF con tolerancia a valores ausentes
+        function truncarPDF(texto, max) {
+            const t = (texto === undefined || texto === null) ? '' : String(texto);
+            return t.length > max ? t.substring(0, max) + '...' : t;
+        }
+                // Obtener niveles seleccionados en el informe por curso
         function getNivelesSeleccionados() {
             const checkboxes = document.querySelectorAll('.curso-filter:checked');
             return Array.from(checkboxes).map(cb => cb.value);
@@ -10104,11 +10256,14 @@
                 const estadoFiltro = estadoSelect.value;
 
                 if (nivelesSeleccionados.length === 0) {
-                    alert('Selecciona al menos un nivel (curso)');
+                    showToast('Selecciona al menos un nivel (curso)', 'warning');
                     return;
                 }
                 
                 let yPos = 45;
+                // Contador de actividades volcadas al PDF: permite avisar de
+                // informes vacíos en lugar de guardar una página en blanco
+                let actividadesImpresas = 0;
                 const actividadesCurso = getActividadesCursoActivo();
                 
                 nivelesSeleccionados.forEach(curso => {
@@ -10121,6 +10276,8 @@
                         actividades = actividades.filter(a => !esActividadRealizada(a));
                     }
                     
+                    // Contar aunque estén filtradas: detecta informes vacíos
+                    actividadesImpresas += actividades.length;
                     if (actividades.length === 0) return;
                 
                 doc.setFontSize(14);
@@ -10142,8 +10299,8 @@
                         yPos += 5;
                         
                         const tableDataRealizadas = realizadas.map(act => [
-                            act.trimestre,
-                            act.nombre.substring(0, 40) + (act.nombre.length > 40 ? '...' : ''),
+                            act.trimestre || '-',
+                            truncarPDF(act.nombre || 'Sin nombre', 40),
                             (act.departamentos || []).join(', ').substring(0, 25),
                             act.fecha ? formatDate(act.fecha) : '-'
                         ]);
@@ -10170,8 +10327,8 @@
                         yPos += 5;
                         
                         const tableDataPropuestas = propuestas.map(act => [
-                            act.trimestre,
-                            act.nombre.substring(0, 40) + (act.nombre.length > 40 ? '...' : ''),
+                            act.trimestre || '-',
+                            truncarPDF(act.nombre || 'Sin nombre', 40),
                             (act.departamentos || []).join(', ').substring(0, 25),
                             '-'
                         ]);
@@ -10194,8 +10351,8 @@
                     // Solo un tipo de actividad (todas realizadas o todas propuestas)
                     const esRealizadas = estadoFiltro === 'realizadas';
                     const tableData = actividades.map(act => [
-                        act.trimestre,
-                        act.nombre.substring(0, 45) + (act.nombre.length > 45 ? '...' : ''),
+                        act.trimestre || '-',
+                        truncarPDF(act.nombre || 'Sin nombre', 45),
                         (act.departamentos || []).join(', ').substring(0, 28),
                         act.fecha ? formatDate(act.fecha) : '-'
                     ]);
@@ -10206,7 +10363,7 @@
                     
                     doc.setFontSize(11);
                     doc.setFont(undefined, 'bold');
-                    doc.setTextColor(esRealizadas ? [5, 150, 105] : [217, 119, 6]);
+                    if (esRealizadas) { doc.setTextColor(5, 150, 105); } else { doc.setTextColor(217, 119, 6); }
                     doc.text(titulo, 14, yPos);
                     yPos += 5;
                     
@@ -10224,15 +10381,25 @@
                 }
             });
             
+            if (actividadesImpresas === 0) {
+                // Sin datos que volcar: avisar en el propio PDF y con toast
+                // (antes se generaba una página en blanco sin explicación)
+                doc.setFont(undefined, 'normal');
+                doc.setTextColor(0, 0, 0);
+                doc.setFontSize(12);
+                doc.text('No hay actividades que coincidan con los filtros seleccionados', 14, 50);
+                showToast('No hay actividades que coincidan con los filtros seleccionados', 'warning');
+            } else {
+                showToast('Informe generado correctamente', 'success');
+            }
             doc.save(`Informe_Cursos_${formatDateTimeFile()}.pdf`);
-            showToast('Informe generado correctamente', 'success');
             
             } catch (error) {
                 console.error('[INFORME] Error en informe por curso:', error);
-                alert('Error al generar informe por curso: ' + error.message + '\nRevisa la consola (F12) para más detalles.');
+                showToast('Error al generar el informe por curso: ' + error.message, 'error');
             }
         }
-
+        
         function generateInformeTrimestre() {
             try {
                 // Verificar que jsPDF está disponible
@@ -10247,7 +10414,12 @@
             
             // Obtener filtros seleccionados
             const trimestresSeleccionados = getTrimestresSeleccionados();
-            const estadoFiltro = document.getElementById('informeTrimEstado').value;
+            const estadoSelect = document.getElementById('informeTrimEstado');
+            if (!estadoSelect) {
+                showToast('No se encuentra el selector de estado (informeTrimEstado)', 'error');
+                return;
+            }
+            const estadoFiltro = estadoSelect.value;
             
             if (trimestresSeleccionados.length === 0) {
                 showToast('Selecciona al menos un trimestre', 'warning');
@@ -10255,6 +10427,8 @@
             }
             
             let yPos = 45;
+            // Contador de actividades volcadas al PDF (informes vacíos)
+            let actividadesImpresas = 0;
             const actividadesCurso = getActividadesCursoActivo();
             
             trimestresSeleccionados.forEach(trimestre => {
@@ -10267,6 +10441,8 @@
                     actividades = actividades.filter(a => !esActividadRealizada(a));
                 }
                 
+                // Contar aunque estén filtradas: detecta informes vacíos
+                actividadesImpresas += actividades.length;
                 if (actividades.length === 0) return;
                 
                 doc.setFontSize(14);
@@ -10288,8 +10464,8 @@
                         yPos += 5;
                         
                         const tableDataRealizadas = realizadas.map(act => [
-                            act.curso,
-                            act.nombre.substring(0, 40) + (act.nombre.length > 40 ? '...' : ''),
+                            act.curso || '-',
+                            truncarPDF(act.nombre || 'Sin nombre', 40),
                             (act.departamentos || []).join(', ').substring(0, 25),
                             act.fecha ? formatDate(act.fecha) : '-'
                         ]);
@@ -10316,8 +10492,8 @@
                         yPos += 5;
                         
                         const tableDataPropuestas = propuestas.map(act => [
-                            act.curso,
-                            act.nombre.substring(0, 40) + (act.nombre.length > 40 ? '...' : ''),
+                            act.curso || '-',
+                            truncarPDF(act.nombre || 'Sin nombre', 40),
                             (act.departamentos || []).join(', ').substring(0, 25),
                             '-'
                         ]);
@@ -10340,8 +10516,8 @@
                     // Solo un tipo de actividad
                     const esRealizadas = estadoFiltro === 'realizadas';
                     const tableData = actividades.map(act => [
-                        act.curso,
-                        act.nombre.substring(0, 45) + (act.nombre.length > 45 ? '...' : ''),
+                        act.curso || '-',
+                        truncarPDF(act.nombre || 'Sin nombre', 45),
                         (act.departamentos || []).join(', ').substring(0, 28),
                         act.fecha ? formatDate(act.fecha) : '-'
                     ]);
@@ -10352,7 +10528,7 @@
                     
                     doc.setFontSize(11);
                     doc.setFont(undefined, 'bold');
-                    doc.setTextColor(esRealizadas ? [5, 150, 105] : [217, 119, 6]);
+                    if (esRealizadas) { doc.setTextColor(5, 150, 105); } else { doc.setTextColor(217, 119, 6); }
                     doc.text(titulo, 14, yPos);
                     yPos += 5;
                     
@@ -10370,12 +10546,21 @@
                 }
             });
             
+            if (actividadesImpresas === 0) {
+                // Sin datos que volcar: avisar en el propio PDF y con toast
+                doc.setFont(undefined, 'normal');
+                doc.setTextColor(0, 0, 0);
+                doc.setFontSize(12);
+                doc.text('No hay actividades que coincidan con los filtros seleccionados', 14, 50);
+                showToast('No hay actividades que coincidan con los filtros seleccionados', 'warning');
+            } else {
+                showToast('Informe generado', 'success');
+            }
             doc.save(`Informe_Trimestres_${formatDateTimeFile()}.pdf`);
-            showToast('Informe generado', 'success');
             
             } catch (error) {
                 console.error('[INFORME] Error en informe por trimestre:', error);
-                alert('Error al generar informe por trimestre: ' + error.message + '\nRevisa la consola (F12) para más detalles.');
+                showToast('Error al generar el informe por trimestre: ' + error.message, 'error');
             }
         }
 
@@ -10385,7 +10570,7 @@
                 const container = document.getElementById('resultadoCuadranteGlobal');
                 if (!container) {
                     console.error('[CUADRANTE] ERROR: No existe el contenedor resultadoCuadranteGlobal');
-                    alert('Error: No se encuentra el contenedor del cuadrante');
+                    showToast('Error: No se encuentra el contenedor del cuadrante', 'error');
                     return;
                 }
                 
@@ -10659,7 +10844,7 @@
                 // Botones de acción
                 html += `
                     <div class="flex gap-2 mt-4 pt-4" style="border-top: 1px solid var(--border);">
-                        <button onclick="imprimirInforme('resultadoCuadranteGlobal')" class="btn btn-secondary flex-1 text-sm py-2">
+                        <button onclick="generateCuadranteGlobalPDF()" class="btn btn-secondary flex-1 text-sm py-2">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1">
                                 <polyline points="6 9 6 2 18 2 18 9"/>
                                 <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
@@ -10682,7 +10867,7 @@
 
             } catch (error) {
                 console.error('[CUADRANTE] ERROR CRÍTICO:', error);
-                alert('Error al generar el cuadrante global: ' + error.message + '\\nRevisa la consola (F12) para más detalles.');
+                showToast('Error al generar el cuadrante global: ' + error.message, 'error');
                 
                 // Intentar mostrar un mensaje de error en el contenedor
                 const container = document.getElementById('resultadoCuadranteGlobal');
@@ -10734,7 +10919,7 @@
                     const tableDataEE = actividadesEE.map(act => [
                         act.curso || '-',
                         act.trimestre || '-',
-                        act.nombre.substring(0, 35),
+                        truncarPDF(act.nombre || 'Sin nombre', 35),
                         act.fecha ? formatDate(act.fecha) : '-'
                     ]);
                     
@@ -10759,8 +10944,14 @@
                     }
                 }
                 
-                // Sección CC (Naranja)
-                if (actividadesCCData.length > 0 && yPos < 150) {
+                // Sección CC (Naranja): antes, si la tabla EE era larga, la
+                // sección CC se OMITÍA por completo (y con ella actividades del
+                // cuadrante) sin aviso; ahora continúa en página nueva
+                if (actividadesCCData.length > 0) {
+                    if (yPos > 180) {
+                        doc.addPage();
+                        yPos = 20;
+                    }
                     doc.setFontSize(12);
                     doc.setFont(undefined, 'bold');
                     doc.setTextColor(249, 115, 22); // Naranja
@@ -10769,24 +10960,21 @@
                     
                     const tableDataCC = actividadesCCData.map(act => [
                         act.unidad || '-',
-                        act.nombre.substring(0, 40),
+                        truncarPDF(act.nombre || 'Sin nombre', 40),
                         act.fecha ? formatDate(act.fecha) : '-'
                     ]);
                     
-                    if (yPos < 150) {
-                        doc.autoTable({
-                            startY: yPos,
-                            head: [['Unidad', 'Actividad', 'Fecha']],
-                            body: tableDataCC,
-                            theme: 'striped',
-                            headStyles: { fillColor: [249, 115, 22] },
-                            margin: { left: 14 },
-                            styles: { fontSize: 8 }
-                        });
-                    }
+                    doc.autoTable({
+                        startY: yPos,
+                        head: [['Unidad', 'Actividad', 'Fecha']],
+                        body: tableDataCC,
+                        theme: 'striped',
+                        headStyles: { fillColor: [249, 115, 22] },
+                        margin: { left: 14 },
+                        styles: { fontSize: 8 }
+                    });
                 }
-                
-                doc.save(`Cuadrante_Global_${formatDateTimeFile()}.pdf`);
+                                doc.save(`Cuadrante_Global_${formatDateTimeFile()}.pdf`);
                 showToast('PDF del Cuadrante Global generado correctamente', 'success');
                 
             } catch (error) {
@@ -10796,7 +10984,12 @@
         }
 
         function generateInformeProfesor() {
-            const profesor = document.getElementById('informeProfesor').value;
+            const profesorSel = document.getElementById('informeProfesor');
+            if (!profesorSel) {
+                showToast('No se encuentra el selector de profesor (informeProfesor)', 'error');
+                return;
+            }
+            const profesor = profesorSel.value;
             if (!profesor) {
                 showToast('Selecciona un profesor', 'warning');
                 return;
@@ -10814,15 +11007,17 @@
             }
             
             try {
-                const { jsPDF } = window.jspdf;
+                if (!window.jspdf) {
+                    throw new Error('La librería PDF (jsPDF) no está cargada. Recarga la página.');
+                }                const { jsPDF } = window.jspdf;
                 const doc = new jsPDF();
                 
                 addPDFHeader(doc, `Informe de Profesorado: ${profesor}`);
                 
                 const tableData = actividades.map(act => [
-                    act.curso,
-                    act.trimestre,
-                    act.nombre,
+                    act.curso || '-',
+                    act.trimestre || '-',
+                    act.nombre || 'Sin nombre',
                     act.fecha ? formatDate(act.fecha) : '-'
                 ]);
                 
@@ -10834,7 +11029,7 @@
                     headStyles: { fillColor: [13, 115, 119] }
                 });
                 
-                doc.save(`Informe_Profesor_${profesor.replace(/\s+/g, '_')}_${formatDateTimeFile()}.pdf`);
+                doc.save(`Informe_Profesor_${profesor.replace(/[\\/:*?"<>|\s]+/g, '_')}_${formatDateTimeFile()}.pdf`);
                 showToast('Informe generado', 'success');
             } catch (error) {
                 console.error('Error al generar informe de profesor:', error);
@@ -10852,7 +11047,12 @@
             }
             
             // Obtener tipo de actividad seleccionado
-            const tipoActividad = document.getElementById('informeTipoActividad').value;
+            const tipoActividadEl = document.getElementById('informeTipoActividad');
+            if (!tipoActividadEl) {
+                showToast('No se encuentra el selector de tipo de actividad (informeTipoActividad)', 'error');
+                return;
+            }
+            const tipoActividad = tipoActividadEl.value;
             
             const actividadesCurso = getActividadesCursoActivo();
             
@@ -10875,7 +11075,9 @@
             }
             
             try {
-                const { jsPDF } = window.jspdf;
+                if (!window.jspdf) {
+                    throw new Error('La librería PDF (jsPDF) no está cargada. Recarga la página.');
+                }                const { jsPDF } = window.jspdf;
                 const doc = new jsPDF();
                 
                 // Construir título del informe
@@ -10914,9 +11116,9 @@
                         .join(', ');
                     
                     return [
-                        act.curso,
-                        act.trimestre,
-                        act.nombre,
+                        act.curso || '-',
+                        act.trimestre || '-',
+                        act.nombre || 'Sin nombre',
                         deptRelevantes || '-',
                         act.fecha ? formatDate(act.fecha) : '-',
                         estado
@@ -11013,10 +11215,18 @@
             doc.setFont(undefined, 'normal');
             doc.text('Peñaflor (Sevilla)', centerX, 18, { align: 'center' });
             
-            // Título del informe
+            // Título del informe: los títulos largos se ajustan al ancho
+            // (hasta 2 líneas) en lugar de desbordarse por los márgenes
             doc.setFontSize(14);
             doc.setFont(undefined, 'bold');
-            doc.text(title, centerX, 28, { align: 'center' });
+            const tituloInforme = String(title || 'Informe');
+            const lineasTitulo = doc.splitTextToSize(tituloInforme, pageWidth - 20).slice(0, 2);
+            if (lineasTitulo.length > 1) {
+                doc.text(lineasTitulo[0], centerX, 26, { align: 'center' });
+                doc.text(lineasTitulo[1], centerX, 33, { align: 'center' });
+            } else {
+                doc.text(lineasTitulo[0] || tituloInforme, centerX, 28, { align: 'center' });
+            }
             
             // Fecha de generación - dentro de los márgenes de la página
             doc.setTextColor(0, 0, 0);
@@ -11043,6 +11253,7 @@
                 }
                 // Fallback: usar Date
                 const fecha = new Date(dateStr + 'T00:00:00');
+                if (isNaN(fecha.getTime())) return String(dateStr);
                 return fecha.toLocaleDateString('es-ES', { 
                     day: '2-digit', 
                     month: '2-digit', 
@@ -11148,6 +11359,7 @@
 // Array para almacenar actividades CC
 let actividadesCC = [];
 let editingCCId = null; // actividad CC cargada actualmente en el formulario de edición
+let ultimaEscrituraCCEn = 0; // momento de la última escritura local CC (evita que una carga tardía de la nube pise cambios recientes)
 
 /**
  * Carga actividades CC desde localStorage/Firebase
@@ -11156,7 +11368,16 @@ function cargarActividadesCC() {
     
     // Intentar cargar desde Firebase primero
     if (typeof dbRef !== 'undefined' && dbRef) {
+        // Momento en el que inicia la carga: si el usuario guarda cambios CC
+        // mientras la respuesta viaja, la instantánea que llega está ya
+        // anticuada y no debe pisar lo recién guardado (carrera carga/escritura)
+        const cargaCCIniciadaEn = Date.now();
         dbRef.child('actividadesCC').once('value', function(snapshot) {
+            // Cambios locales CC posteriores al inicio de la carga: descartarla
+            if (ultimaEscrituraCCEn > cargaCCIniciadaEn) {
+                console.warn('[CC] Carga de la nube descartada: hay cambios locales CC más recientes');
+                return;
+            }
             
             if (snapshot.exists()) {
                 const data = snapshot.val();
@@ -11198,6 +11419,12 @@ function cargarActividadesCC() {
                 } catch (e) {
                     console.error('[CC] Error al cargar:', e);
                 }
+            } else {
+                // Sin datos de respaldo: dejar la colección vacía pero
+                // renderizar (antes la lista quedaba sin actualizar)
+                actividadesCC = [];
+                renderizarListaCC();
+                actualizarSelectorCCEdit();
             }
         });
     } else {
@@ -11796,11 +12023,9 @@ function eliminarTodasActividadesEE() {
         // Guardar cambios
         saveToLocalStorage();
         
-        // Guardar en Firebase si está disponible
-        if (typeof dbRef !== 'undefined' && dbRef) {
-            dbRef.child('actividades').set(appData.actividades)
-                .catch(err => console.warn('[EE] Error en Firebase:', err));
-        }
+        // (La sincronización con la nube ya la realiza saveToLocalStorage:
+        // la escritura directa de «actividades» era redundante y duplicaba el
+        // guardado en la nube)
         
         // Actualizar TODA la UI
         renderEditSelect();
@@ -12054,21 +12279,49 @@ function limpiarFormularioCC() {
 }
 
 /**
- * Guarda actividades CC en localStorage y Firebase
+ * Guarda actividades CC en localStorage y Firebase.
+ * Pasa por el mismo sello «lastUpdated» y la misma detección de conflictos
+ * multiusuario que saveToFirebase: antes usaba set() directo y las
+ * actividades CC quedaban fuera del control de concurrencia.
  */
 function guardarActividadesCC() {
+    // Marca de esta escritura: la carga desde la nube la consulta para no
+    // pisar cambios recientes con una instantánea antigua (carrera)
+    ultimaEscrituraCCEn = Date.now();
+    
     // Guardar en localStorage
     localStorage.setItem('aaccee_actividades_cc', JSON.stringify(actividadesCC));
-
-    // Guardar en Firebase si está disponible
+    
+    // Sincronización en pausa: mantener la copia local de seguridad
+    // actualizada (la nube prevalecería tras una recarga)
+    if (typeof syncNubePausada !== 'undefined' && syncNubePausada) {
+        try { localStorage.setItem('aaccee_actividades_cc_conflicto', JSON.stringify(actividadesCC)); } catch (e) { /* cuota: seguir */ }
+        if (typeof renderizarCalendarioCC === 'function') {
+            renderizarCalendarioCC();
+        }
+        return;
+    }
+    
+    // Guardar en Firebase si está disponible (update con sello para que la
+    // detección de conflictos cubra también las actividades CC)
     if (typeof dbRef !== 'undefined' && dbRef) {
-        dbRef.child('actividadesCC').set(actividadesCC)
-            .catch(function(error) {
-                console.warn('[CC] Error guardando en Firebase:', error);
-                if (typeof showToast === 'function') {
-                    showToast('Guardado en este dispositivo, pero no se pudo sincronizar con la nube', 'warning');
-                }
-            });
+        comprobarConflictoNube().then(function (abortar) {
+            if (abortar) return;
+            const sello = new Date().toISOString();
+            if (typeof ultimoSelloEscrito !== 'undefined' && (!ultimoSelloEscrito || sello > ultimoSelloEscrito)) ultimoSelloEscrito = sello;
+            dbRef.update({ actividadesCC: actividadesCC, lastUpdated: sello })
+                .then(function () {
+                    if (typeof ultimoLastUpdatedNube !== 'undefined') ultimoLastUpdatedNube = sello;
+                    pendienteSyncCC = false;
+                })
+                .catch(function (error) {
+                    console.warn('[CC] Error guardando en Firebase:', error);
+                    pendienteSyncCC = true;
+                    if (typeof showToast === 'function') {
+                        showToast('Guardado en este dispositivo, pero no se pudo sincronizar con la nube', 'warning');
+                    }
+                });
+        });
     }
     
     // Actualizar calendario si existe la función
@@ -12076,7 +12329,6 @@ function guardarActividadesCC() {
         renderizarCalendarioCC();
     }
 }
-
 // ==================== CUADRANTES: BOTONES EXCLUSIVOS (SOLO UNO ACTIVO) ====================
 /**
  * Mapa de botones -> tarjetas del cronograma.
@@ -13651,8 +13903,10 @@ function generateInformeCCUnidad() {
         // Obtener criterio de ordenación
         const orden = document.getElementById('informeCCOrden')?.value || 'fecha';
         
-        // Filtrar actividades por unidad
-        let filtradas = actividadesCC.filter(act => act && act.unidad && unidadesSeleccionadas.includes(act.unidad));
+        // Filtrar actividades por unidad (del curso aplicado, como el resto
+        // de la aplicación: antes se mezclaban todos los cursos escolares)
+        const fuenteCCUnidad = (typeof getActividadesCCVisibles === 'function') ? getActividadesCCVisibles() : actividadesCC;
+        let filtradas = fuenteCCUnidad.filter(act => act && act.unidad && unidadesSeleccionadas.includes(act.unidad));
     
     // Ordenar
     if (orden === 'fecha') {
@@ -13673,6 +13927,14 @@ function generateInformeCCUnidad() {
         container.classList.remove('hidden');
         return;
     }
+    
+    // Registrar el conjunto filtrado para que el PDF («Imprimir»)
+    // refleje exactamente las unidades elegidas
+    registrarDatosInforme('informe_cc_unidad', filtradas.map(act => ({
+        unidad: act.unidad || '-',
+        nombre: act.nombre || 'Sin nombre',
+        fecha: act.fecha
+    })), 'Unidades: ' + unidadesSeleccionadas.join(', '));
     
     // Agrupar por unidad para mejor visualización
     const agrupadas = {};
@@ -13947,12 +14209,13 @@ function generateInformeCCPeriodo() {
         return;
     }
     
-    // Filtrar actividades por rango de fechas
-    const filtradas = actividadesCC.filter(act => 
+    // Filtrar actividades por rango de fechas (del curso aplicado, como el
+    // resto de la aplicación: antes se mezclaban todos los cursos escolares)
+    const fuenteCCPeriodo = (typeof getActividadesCCVisibles === 'function') ? getActividadesCCVisibles() : actividadesCC;
+    const filtradas = fuenteCCPeriodo.filter(act => 
         act.fecha >= fechaDesde && act.fecha <= fechaHasta
     ).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-    
-    // Formatear fechas para mostrar
+        // Formatear fechas para mostrar
     const desdeFormateada = new Date(fechaDesde + 'T00:00:00').toLocaleDateString('es-ES', {
         day: '2-digit', month: 'long', year: 'numeric'
     });
@@ -13971,6 +14234,14 @@ function generateInformeCCPeriodo() {
         container.classList.remove('hidden');
         return;
     }
+    
+    // Registrar el conjunto filtrado para que el PDF («Imprimir»)
+    // refleje exactamente el período elegido
+    registrarDatosInforme('informe_cc_periodo', filtradas.map(act => ({
+        unidad: act.unidad || '-',
+        nombre: act.nombre || 'Sin nombre',
+        fecha: act.fecha
+    })), `Período: ${desdeFormateada} - ${hastaFormateada}`);
     
     let html = `
         <div id="informe_cc_periodo" class="mt-4 rounded-xl overflow-hidden" style="border: 1px solid var(--border);">
@@ -14068,28 +14339,38 @@ function generateResumenCC() {
             return;
         }
     
-    if (actividadesCC.length === 0) {
+    // Aislar por curso escolar (el aplicado), como el resto de la app
+    const fuenteCCResumen = (typeof getActividadesCCVisibles === 'function') ? getActividadesCCVisibles() : actividadesCC;
+    
+    if (fuenteCCResumen.length === 0) {
         container.innerHTML = `
             <div class="mt-4 p-4 rounded-lg text-center" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3);">
-                <p style="color: #dc2626;">No hay actividades CC registradas.</p>
+                <p style="color: #dc2626;">No hay actividades CC del curso aplicado.</p>
             </div>
         `;
         container.classList.remove('hidden');
         return;
     }
     
-    // Calcular estadísticas
+    // Registrar el conjunto para que el PDF («Imprimir Resumen») refleje
+    // exactamente estos datos
+    registrarDatosInforme('resumen_cc', fuenteCCResumen.map(act => ({
+        unidad: act.unidad || '-',
+        nombre: act.nombre || 'Sin nombre',
+        fecha: act.fecha
+    })), 'Total: ' + fuenteCCResumen.length + ' actividades');
+        // Calcular estadísticas
     const totalActividades = actividadesCC.length;
     
     // Por unidad
     const porUnidad = {};
-    actividadesCC.forEach(act => {
+    fuenteCCResumen.forEach(act => {
         porUnidad[act.unidad] = (porUnidad[act.unidad] || 0) + 1;
     });
     
     // Por mes
     const porMes = {};
-    actividadesCC.forEach(act => {
+    fuenteCCResumen.forEach(act => {
         if (!act.fecha) return; // Saltar actividades sin fecha
         const fecha = new Date(act.fecha + 'T00:00:00');
         const mesKey = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
@@ -14103,12 +14384,12 @@ function generateResumenCC() {
     // Próxima actividad
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
-    const futuras = actividadesCC
+    const futuras = fuenteCCResumen
         .filter(act => new Date(act.fecha + 'T00:00:00') >= hoy)
         .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
     
     // Última actividad realizada
-    const pasadas = actividadesCC
+    const pasadas = fuenteCCResumen
         .filter(act => new Date(act.fecha + 'T00:00:00') < hoy)
         .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
     
@@ -14230,6 +14511,19 @@ function generateResumenCC() {
  * @param {string} tipo - Tipo de informe: 'informe_cc_unidad', 'informe_cc_periodo', 'resumen_cc', 
  *                         'informe_ee_curso_trim', 'informe_ee_periodo', 'resumen_ee'
  */
+// Datos del último informe generado en pantalla (con los mismos filtros que
+// ve el usuario). El PDF usa exactamente ese conjunto: antes «Imprimir»
+// recalculaba los datos SIN los filtros de la interfaz y el PDF no
+// coincidía con lo mostrado (p. ej. el período elegido se ignoraba).
+var ultimoInformePantalla = null; // { tipo, datos, subtitulo }
+function registrarDatosInforme(tipo, datos, subtitulo) {
+    ultimoInformePantalla = {
+        tipo: tipo,
+        datos: Array.isArray(datos) ? datos : [],
+        subtitulo: subtitulo || ''
+    };
+}
+
 function imprimirInforme(tipo) {
     try {
         // Verificar jsPDF
@@ -14263,23 +14557,29 @@ function imprimirInforme(tipo) {
 function generarPDFCC(doc, tipo) {
     let titulo = '';
     let datos = [];
+    // Usar el conjunto filtrado del informe visible en pantalla cuando
+    // exista (registrado por el generador HTML); si no, recalcular
+    const enPantalla = (typeof ultimoInformePantalla === 'object' && ultimoInformePantalla && ultimoInformePantalla.tipo === tipo) ? ultimoInformePantalla : null;
     
     switch(tipo) {
         case 'informe_cc_unidad':
             titulo = 'Informe de Actividades CC por Unidad';
-            datos = obtenerDatosInformeCCUnidad();
+            datos = enPantalla ? enPantalla.datos : obtenerDatosInformeCCUnidad();
             break;
         case 'informe_cc_periodo':
             titulo = 'Informe de Actividades CC por Período';
-            datos = obtenerDatosInformeCCPeriodo();
+            datos = enPantalla ? enPantalla.datos : obtenerDatosInformeCCPeriodo();
             break;
         case 'resumen_cc':
             titulo = 'Resumen de Actividades CC';
-            datos = obtenerDatosResumenCC();
+            datos = enPantalla ? enPantalla.datos : obtenerDatosResumenCC();
             break;
         default:
             titulo = 'Informe de Actividades CC';
             datos = [];
+    }
+    if (enPantalla && enPantalla.subtitulo) {
+        titulo = `${titulo} — ${enPantalla.subtitulo}`;
     }
     
     addPDFHeader(doc, titulo);
@@ -14287,6 +14587,7 @@ function generarPDFCC(doc, tipo) {
     if (datos.length === 0) {
         doc.setFontSize(12);
         doc.text('No hay datos disponibles para este informe', 14, 50);
+        showToast('No hay datos para este informe', 'warning');
         doc.save(`${titulo.replace(/\s+/g, '_')}_${formatDateTimeFile()}.pdf`);
         return;
     }
@@ -14309,7 +14610,7 @@ function generarPDFCC(doc, tipo) {
             yPos += 7;
             
             const tableData = agrupados[unidad].map(d => [
-                d.nombre.substring(0, 45),
+                truncarPDF(d.nombre || 'Sin nombre', 45),
                 d.fecha ? formatDate(d.fecha) : '-'
             ]);
             
@@ -14335,7 +14636,7 @@ function generarPDFCC(doc, tipo) {
         // Tabla simple para otros informes
         const tableData = datos.map(d => [
             d.unidad || '-',
-            d.nombre.substring(0, 45),
+            truncarPDF(d.nombre || 'Sin nombre', 45),
             d.fecha ? formatDate(d.fecha) : '-'
         ]);
         
@@ -14353,30 +14654,35 @@ function generarPDFCC(doc, tipo) {
     doc.save(`Informe_CC_${formatDateTimeFile()}.pdf`);
     showToast('PDF generado correctamente', 'success');
 }
-
 /**
  * Genera PDF para informes EE
  */
 function generarPDFEE(doc, tipo) {
     let titulo = '';
     let datos = [];
+    // Usar el conjunto filtrado del informe visible en pantalla cuando
+    // exista (registrado por el generador HTML); si no, recalcular
+    const enPantalla = (typeof ultimoInformePantalla === 'object' && ultimoInformePantalla && ultimoInformePantalla.tipo === tipo) ? ultimoInformePantalla : null;
     
     switch(tipo) {
         case 'informe_ee_curso_trim':
             titulo = 'Informe de Actividades EE por Curso/Trimestre';
-            datos = obtenerDatosInformeEECursoTrim();
+            datos = enPantalla ? enPantalla.datos : obtenerDatosInformeEECursoTrim();
             break;
         case 'informe_ee_periodo':
             titulo = 'Informe de Actividades EE por Período';
-            datos = obtenerDatosInformeEEPeriodo();
+            datos = enPantalla ? enPantalla.datos : obtenerDatosInformeEEPeriodo();
             break;
         case 'resumen_ee':
             titulo = 'Resumen de Actividades EE';
-            datos = obtenerDatosResumenEE();
+            datos = enPantalla ? enPantalla.datos : obtenerDatosResumenEE();
             break;
         default:
             titulo = 'Informe de Actividades EE';
             datos = [];
+    }
+    if (enPantalla && enPantalla.subtitulo) {
+        titulo = `${titulo} — ${enPantalla.subtitulo}`;
     }
     
     addPDFHeader(doc, titulo);
@@ -14384,6 +14690,7 @@ function generarPDFEE(doc, tipo) {
     if (datos.length === 0) {
         doc.setFontSize(12);
         doc.text('No hay datos disponibles para este informe', 14, 50);
+        showToast('No hay datos para este informe', 'warning');
         doc.save(`${titulo.replace(/\s+/g, '_')}_${formatDateTimeFile()}.pdf`);
         return;
     }
@@ -14407,7 +14714,7 @@ function generarPDFEE(doc, tipo) {
             
             const tableData = agrupados[curso].map(d => [
                 d.trimestre || '-',
-                d.nombre.substring(0, 40),
+                truncarPDF(d.nombre || 'Sin nombre', 40),
                 (d.departamentos || []).join(', ').substring(0, 25),
                 d.fecha ? formatDate(d.fecha) : '-'
             ]);
@@ -14432,7 +14739,7 @@ function generarPDFEE(doc, tipo) {
     } else {
         const tableData = datos.map(d => [
             d.curso || '-',
-            d.nombre.substring(0, 40),
+            truncarPDF(d.nombre || 'Sin nombre', 40),
             d.fecha ? formatDate(d.fecha) : '-'
         ]);
         
@@ -14450,13 +14757,15 @@ function generarPDFEE(doc, tipo) {
     doc.save(`Informe_EE_${formatDateTimeFile()}.pdf`);
     showToast('PDF generado correctamente', 'success');
 }
-
 /**
  * Obtiene datos del informe CC por unidad
  */
 function obtenerDatosInformeCCUnidad() {
-    if (!Array.isArray(actividadesCC)) return [];
-    return actividadesCC.map(a => ({
+    // Aislar por curso escolar (el aplicado, como el resto de la app): sin
+    // esto los PDF CC mezclarían actividades de TODOS los cursos escolares
+    const fuente = (typeof getActividadesCCVisibles === 'function') ? getActividadesCCVisibles() : actividadesCC;
+    if (!Array.isArray(fuente)) return [];
+    return fuente.map(a => ({
         unidad: a.unidad,
         nombre: a.nombre || 'Sin nombre',
         fecha: a.fecha,
@@ -14602,7 +14911,16 @@ function generateInformeEECursoTrim() {
             return;
         }
         
-        // Agrupar por curso y trimestre
+        // Registrar el conjunto filtrado para que el PDF («Imprimir»)
+        // refleje exactamente estos filtros
+        registrarDatosInforme('informe_ee_curso_trim', filtradas.map(act => ({
+            curso: act.curso || '-',
+            trimestre: act.trimestre || '-',
+            nombre: act.nombre || 'Sin nombre',
+            departamentos: act.departamentos || [],
+            fecha: act.fecha
+        })), `${filtradas.length} actividad(es)`);
+                // Agrupar por curso y trimestre
         const agrupadas = {};
         filtradas.forEach(act => {
             const key = `${act.curso || 'Sin curso'} - ${act.trimestre || 'Sin trimestre'}`;
@@ -14747,7 +15065,14 @@ function generateInformeEEPeriodo() {
             return;
         }
         
-        let html = `
+        // Registrar el conjunto filtrado para que el PDF («Imprimir»)
+        // refleje exactamente el período elegido
+        registrarDatosInforme('informe_ee_periodo', filtradas.map(act => ({
+            curso: act.curso || '-',
+            nombre: act.nombre || 'Sin nombre',
+            fecha: act.fecha
+        })), `Período: ${desdeFormateada} - ${hastaFormateada}`);
+                let html = `
             <div id="informe_ee_periodo" class="mt-4 rounded-xl overflow-hidden" style="border: 1px solid var(--border);">
                 <div class="p-4" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white;">
                     <h4 class="font-bold text-lg">Informe de Actividades EE por Período</h4>
@@ -14850,6 +15175,13 @@ function generateResumenEE() {
             return;
         }
     
+        // Registrar el conjunto del curso para que el PDF refleje estos datos
+        registrarDatosInforme('resumen_ee', actividadesCurso.map(act => ({
+            curso: act.curso || '-',
+            nombre: act.nombre || 'Sin nombre',
+            fecha: act.fecha
+        })), 'Total: ' + actividadesCurso.length + ' actividades');
+        
         // Calcular estadísticas
         const totalActividades = actividadesCurso.length;
         
@@ -15313,6 +15645,11 @@ function generateResumenEE() {
     });
     window.addEventListener('online', function () {
         showToast('Conexión restaurada', 'success');
+        // Cumplir la promesa del aviso «se sincronizarán al reconectar»:
+        // reintentar los guardados que fallaron sin conexión
+        if (typeof window.reintentarSincronizacionNube === 'function') {
+            try { window.reintentarSincronizacionNube(); } catch (e) { console.warn('[SYNC] Reintento fallido:', e); }
+        }
     });
     </script>
 </body>
