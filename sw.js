@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ace-villadiego-v2.32';
+const CACHE_NAME = 'ace-villadiego-v2.33';
 // Rutas RELATIVAS al propio sw.js: la app puede desplegarse en cualquier
 // subcarpeta (p. ej. iesvilladiego.github.io/<app>/ o su fork) sin invadir
 // el ámbito del portal ni cachear páginas ajenas.
