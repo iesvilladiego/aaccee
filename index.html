@@ -2488,6 +2488,59 @@
                         </div>
                     </div>
 
+                    <!-- Copia de seguridad y restauración - Acordeón -->
+                    <div class="card overflow-hidden">
+                        <div class="accordion-header" onclick="toggleAccordion(this)">
+                            <h2 class="font-display text-lg font-bold flex items-center gap-2" style="color: var(--accent);">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/>
+                                </svg>
+                                Copia de seguridad y restauración
+                            </h2>
+                            <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </div>
+                        <div class="accordion-content">
+                            <div class="p-6 space-y-4">
+                                <p class="text-sm" style="color: var(--muted);">
+                                    Crea una copia de seguridad completa de todos los datos de la aplicación
+                                    (configuración, cursos escolares, actividades EE y CC, profesorado, enlaces
+                                    de normativa y usuarios). Guarda el archivo en un lugar seguro: si algún día
+                                    se pierden los datos de Firebase o del navegador, podrás restaurarlos con un clic.
+                                </p>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <button onclick="exportarBackupCompleto()" class="btn btn-primary">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                                        </svg>
+                                        Descargar copia de seguridad
+                                    </button>
+                                    <label class="btn btn-danger cursor-pointer">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                                        </svg>
+                                        Restaurar desde copia de seguridad
+                                        <input type="file" accept=".json" class="hidden" onchange="restaurarBackupCompleto(event)">
+                                    </label>
+                                </div>
+                                <div class="p-3 rounded-lg text-xs space-y-1" style="background: var(--bg); border: 1px solid var(--border); color: var(--muted);">
+                                    <div><strong style="color: var(--fg);">El backup incluye:</strong></div>
+                                    <div>• Configuración general (trimestres, unidades, cursos escolares y curso activo)</div>
+                                    <div>• Actividades EE (extraescolares) y enlaces de normativa</div>
+                                    <div>• Actividades CC (complementarias)</div>
+                                    <div>• Profesorado por curso escolar</div>
+                                    <div>• Usuarios y contraseñas (hash) <strong style="color: var(--danger);">— sensible, no compartas este archivo</strong></div>
+                                </div>
+                                <div class="p-3 rounded-lg text-xs" style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--danger);">
+                                    <strong>⚠️ Atención:</strong> La restauración <strong>sustituye</strong> todos los datos actuales
+                                    por los del archivo. Si tienes cambios sin guardar, descarga primero un backup nuevo.
+                                    Tras la restauración, los datos se sincronizan con Firebase automáticamente.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Gestión de Usuarios (Solo Admin) - Acordeón -->
                     <div id="userManagementPanel" class="card overflow-hidden hidden">
                         <div class="accordion-header" onclick="toggleAccordion(this)">
@@ -9487,6 +9540,272 @@
                 }
             };
             reader.readAsText(file);
+        }
+
+        // ==================== BACKUP / RESTAURACIÓN COMPLETA ====================
+        // Las dos funciones siguientes empaquetan TODOS los datos de la
+        // aplicación (config, actividades EE, actividades CC, enlaces de
+        // normativa y usuarios) en un único archivo JSON, listo para
+        // restaurar el estado completo en caso de pérdida. A diferencia
+        // del export selectivo (abrirModalExportar), aquí no hay filtros
+        // por curso ni checkboxes: se descarga y se restaura todo.
+        /**
+         * Descarga una copia de seguridad completa de todos los datos
+         * de la aplicación: appData (config + actividades EE + enlacesNormativa),
+         * actividadesCC (variable global separada) y usersData (autenticación).
+         */
+        function exportarBackupCompleto() {
+            try {
+                if (typeof isSaving !== 'undefined' && isSaving) {
+                    // Evitar exportar una instantánea a medias si hay un
+                    // guardado en curso: el usuario puede volver a pulsar
+                    showToast('Hay un guardado en curso. Vuelve a pulsar en unos segundos.', 'warning');
+                    return;
+                }
+                const snapshot = {
+                    _metadata: {
+                        tipo: 'backup_completo_aaccee',
+                        version: 'AACCEE Manager - IES Virgen de Villadiego',
+                        fechaBackup: new Date().toISOString(),
+                        origen: window.location.href,
+                        cuenta: {
+                            actividadesEE: (appData?.actividades || []).length,
+                            actividadesCC: (typeof actividadesCC !== 'undefined' ? actividadesCC : []).length,
+                            enlacesNormativa: (appData?.enlacesNormativa || []).length,
+                            cursosEscolares: (appData?.config?.cursosEscolares || []).length,
+                            profesoradoPorCurso: Object.keys(appData?.config?.profesoradoPorCurso || {}).length,
+                            usuarios: (typeof usersData !== 'undefined' ? usersData : []).length
+                        }
+                    },
+                    appData: JSON.parse(JSON.stringify(appData || {})),
+                    actividadesCC: JSON.parse(JSON.stringify(typeof actividadesCC !== 'undefined' ? actividadesCC : [])),
+                    usersData: JSON.parse(JSON.stringify(typeof usersData !== 'undefined' ? usersData : []))
+                };
+
+                const dataStr = JSON.stringify(snapshot, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Backup_AACCEE_${formatDateTimeFile()}.json`;
+                // Safari/iOS cancelan la descarga si el ancla no está en
+                // el documento o si la URL del blob se libera de inmediato
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+                const c = snapshot._metadata.cuenta;
+                showToast(`✅ Backup descargado: ${c.actividadesEE} EE · ${c.actividadesCC} CC · ${c.usuarios} usuarios`, 'success');
+            } catch (error) {
+                console.error('[BACKUP] Error al exportar backup completo:', error);
+                showToast('Error al generar la copia de seguridad: ' + (error.message || 'desconocido'), 'error');
+            }
+        }
+
+        /**
+         * Restaura una copia de seguridad completa previamente descargada
+         * con exportarBackupCompleto(). Sustituye todos los datos actuales
+         * por los del archivo (operación destructiva) y sincroniza con
+         * Firebase. También acepta backups antiguos del export selectivo
+         * (compatibilidad hacia atrás).
+         */
+        async function restaurarBackupCompleto(event) {
+            const input = event.target;
+            const file = input.files && input.files[0];
+            if (!file) return;
+
+            // Resetear el input para permitir re-seleccionar el mismo archivo
+            const resetInput = () => { try { input.value = ''; } catch (e) { /* sin consecuencias */ } };
+
+            const readFile = () => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onerror = () => reject(new Error('No se pudo leer el archivo seleccionado'));
+                reader.onload = e => {
+                    try { resolve(JSON.parse(e.target.result)); }
+                    catch (err) { reject(new Error('El archivo no es un JSON válido: ' + err.message)); }
+                };
+                reader.readAsText(file);
+            });
+
+            let backup;
+            try {
+                backup = await readFile();
+            } catch (err) {
+                showToast(err.message || 'Error al leer el archivo', 'error');
+                resetInput();
+                return;
+            }
+
+            // Validar que es un objeto JSON
+            if (!backup || typeof backup !== 'object' || Array.isArray(backup)) {
+                showToast('Estructura de backup inválida: no es un objeto JSON', 'error');
+                resetInput();
+                return;
+            }
+
+            const esBackupCompleto = backup._metadata && backup._metadata.tipo === 'backup_completo_aaccee';
+
+            // También aceptamos backups antiguos del export selectivo
+            if (!esBackupCompleto
+                && !backup.appData
+                && !Array.isArray(backup.actividades)
+                && !Array.isArray(backup.actividadesCC)) {
+                showToast('El archivo no parece ser una copia de seguridad de AACCEE Manager', 'error');
+                resetInput();
+                return;
+            }
+
+            // Construir el resumen de lo que se va a restaurar
+            const cuenta = backup._metadata && backup._metadata.cuenta ? backup._metadata.cuenta : {
+                actividadesEE: Array.isArray(backup.actividades) ? backup.actividades.length
+                    : Array.isArray(backup.appData?.actividades) ? backup.appData.actividades.length : 0,
+                actividadesCC: Array.isArray(backup.actividadesCC) ? backup.actividadesCC.length : 0,
+                enlacesNormativa: Array.isArray(backup.enlacesNormativa) ? backup.enlacesNormativa.length
+                    : Array.isArray(backup.appData?.enlacesNormativa) ? backup.appData.enlacesNormativa.length : 0,
+                cursosEscolares: Array.isArray(backup.appData?.config?.cursosEscolares) ? backup.appData.config.cursosEscolares.length
+                    : Array.isArray(backup.config?.cursosEscolares) ? backup.config.cursosEscolares.length : 0,
+                usuarios: Array.isArray(backup.usersData) ? backup.usersData.length : 0
+            };
+
+            const fechaBackup = backup._metadata && backup._metadata.fechaBackup
+                ? new Date(backup._metadata.fechaBackup).toLocaleString('es-ES')
+                : '(fecha desconocida)';
+
+            // Primera confirmación: operación destructiva
+            const msg = `⚠️ RESTAURACIÓN DE COPIA DE SEGURIDAD\n\n` +
+                `Vas a sustituir TODOS los datos actuales por los del archivo.\n\n` +
+                `Origen: ${file.name}\n` +
+                `Fecha del backup: ${fechaBackup}\n\n` +
+                `Contenido del backup:\n` +
+                `  • ${cuenta.actividadesEE} actividad(es) EE\n` +
+                `  • ${cuenta.actividadesCC} actividad(es) CC\n` +
+                `  • ${cuenta.enlacesNormativa} enlace(s) de normativa\n` +
+                `  • ${cuenta.cursosEscolares} curso(s) escolar(es)\n` +
+                `  • ${cuenta.usuarios} usuario(s)\n\n` +
+                `Los datos actuales se perderán y se sobrescribirán también en Firebase.\n\n` +
+                `¿Seguro que quieres continuar?`;
+
+            if (!confirm(msg)) {
+                showToast('Restauración cancelada', 'info');
+                resetInput();
+                return;
+            }
+
+            // Segunda confirmación si el backup no es del tipo «completo»
+            // (backup antiguo del export selectivo): avisar de que los
+            // usuarios no se restauran.
+            if (!esBackupCompleto) {
+                const msg2 = `El archivo no incluye la marca de backup completo de AACCEE Manager.\n` +
+                    `Se restaurarán los datos reconocidos (actividades, config, etc.),\n` +
+                    `pero los usuarios actuales se conservarán.\n\n` +
+                    `¿Continuar de todos modos?`;
+                if (!confirm(msg2)) {
+                    showToast('Restauración cancelada', 'info');
+                    resetInput();
+                    return;
+                }
+            }
+
+            try {
+                // 1) appData (config + actividades EE + enlacesNormativa)
+                if (backup.appData && typeof backup.appData === 'object') {
+                    const nuevoAppData = backup.appData;
+                    // Garantizar la estructura mínima para no romper nada
+                    if (!nuevoAppData.config) nuevoAppData.config = {};
+                    if (!nuevoAppData.config.trimestres) nuevoAppData.config.trimestres = { t1:{start:'',end:''}, t2:{start:'',end:''}, t3:{start:'',end:''} };
+                    if (!Array.isArray(nuevoAppData.config.profesorado)) nuevoAppData.config.profesorado = [];
+                    if (!nuevoAppData.config.profesoradoPorCurso) nuevoAppData.config.profesoradoPorCurso = {};
+                    if (!Array.isArray(nuevoAppData.config.cursosEscolares)) nuevoAppData.config.cursosEscolares = [];
+                    if (!nuevoAppData.config.unidadesPorCurso) nuevoAppData.config.unidadesPorCurso = {};
+                    if (!nuevoAppData.config.unidadesDefecto) nuevoAppData.config.unidadesDefecto = { cursos:['1º ESO','2º ESO','3º ESO','4º ESO'], unidades:['1º A','1º B','2º A','2º B','3º A','3º B','4º A','4º B'] };
+                    if (!Array.isArray(nuevoAppData.actividades)) nuevoAppData.actividades = [];
+                    if (!Array.isArray(nuevoAppData.enlacesNormativa)) nuevoAppData.enlacesNormativa = [];
+                    appData = nuevoAppData;
+                } else {
+                    // Backup selectivo antiguo: reconstruir appData a partir
+                    // de las claves sueltas (formato de abrirModalExportar)
+                    if (!appData) appData = { config:{}, actividades:[], enlacesNormativa:[] };
+                    if (backup.config) appData.config = backup.config;
+                    if (Array.isArray(backup.actividades)) appData.actividades = backup.actividades;
+                    if (Array.isArray(backup.enlacesNormativa)) appData.enlacesNormativa = backup.enlacesNormativa;
+                    if (backup.unidades) {
+                        if (backup.unidades.defecto) appData.config.unidadesDefecto = backup.unidades.defecto;
+                        if (backup.unidades.porCurso) appData.config.unidadesPorCurso = backup.unidades.porCurso;
+                    }
+                    // Profesorado del formato antiguo
+                    if (backup.profesorado) {
+                        if (backup.profesorado.tipo === 'todos_los_cursos' && backup.profesorado.profesoradoPorCurso) {
+                            appData.config.profesoradoPorCurso = backup.profesorado.profesoradoPorCurso;
+                            if (Array.isArray(backup.profesorado.profesoradoLegacy)) {
+                                appData.config.profesorado = backup.profesorado.profesoradoLegacy;
+                            }
+                        } else if (backup.profesorado.tipo === 'curso_especifico' && Array.isArray(backup.profesorado.profesores)) {
+                            if (!appData.config.profesoradoPorCurso) appData.config.profesoradoPorCurso = {};
+                            appData.config.profesoradoPorCurso[backup.profesorado.cursoId] = backup.profesorado.profesores;
+                        }
+                    }
+                }
+
+                // 2) actividadesCC (variable global separada)
+                if (Array.isArray(backup.actividadesCC)) {
+                    actividadesCC = backup.actividadesCC;
+                }
+
+                // 3) usersData (solo en backup completo)
+                if (esBackupCompleto && Array.isArray(backup.usersData)) {
+                    usersData = backup.usersData;
+                    // Re-hashear contraseñas pendientes por si el backup
+                    // las trae en claro (no debería, pero por seguridad)
+                    try { await hashPasswordsIfNeeded(); } catch (e) { /* no bloquear */ }
+                }
+
+                // 4) Persistir en localStorage y normalizar
+                try {
+                    localStorage.setItem('aceManagerData', JSON.stringify(appData));
+                } catch (e) { console.warn('[BACKUP] No se pudo guardar appData en localStorage:', e); }
+                if (typeof actividadesCC !== 'undefined') {
+                    try { localStorage.setItem('aaccee_actividades_cc', JSON.stringify(actividadesCC)); } catch (e) { /* cuota: seguir */ }
+                }
+                if (esBackupCompleto) {
+                    try { localStorage.setItem('aaccee_users', JSON.stringify(usersData)); } catch (e) { /* cuota: seguir */ }
+                }
+
+                // Atribuir curso por fecha a actividades huérfanas del backup
+                try {
+                    if (typeof atribuirCursoPorFechaActividades === 'function') {
+                        atribuirCursoPorFechaActividades();
+                    }
+                } catch (e) { /* no crítico */ }
+
+                // 5) Re-renderizar toda la UI con los datos restaurados
+                if (typeof renderAll === 'function') renderAll();
+                if (typeof renderCronograma === 'function') renderCronograma();
+                if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
+                if (typeof renderizarListaCC === 'function') renderizarListaCC();
+                if (typeof actualizarSelectorCCEdit === 'function') actualizarSelectorCCEdit();
+                if (typeof renderCursosEscolares === 'function') renderCursosEscolares();
+                if (typeof renderUsersList === 'function' && currentUser && currentUser.rol === 'admin') renderUsersList();
+
+                // 6) Sincronizar con Firebase en background (sin bloquear UI)
+                try {
+                    saveToLocalStorage(false); // appData → nube
+                } catch (e) { console.warn('[BACKUP] No se pudo sincronizar appData con la nube:', e); }
+                if (typeof guardarActividadesCC === 'function') {
+                    try { guardarActividadesCC(); } catch (e) { console.warn('[BACKUP] No se pudo sincronizar CC con la nube:', e); }
+                }
+                if (esBackupCompleto && typeof saveUsersToStorage === 'function') {
+                    try { await saveUsersToStorage(); } catch (e) { console.warn('[BACKUP] No se pudo sincronizar usuarios con la nube:', e); }
+                }
+
+                showToast('✅ Copia de seguridad restaurada y sincronizada con la nube', 'success');
+            } catch (error) {
+                console.error('[BACKUP] Error al restaurar:', error);
+                showToast('Error al restaurar la copia de seguridad: ' + (error.message || 'desconocido'), 'error');
+            } finally {
+                resetInput();
+            }
         }
 
         // ==================== FIREBASE INTEGRATION ====================
