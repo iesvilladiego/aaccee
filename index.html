@@ -6540,13 +6540,29 @@
         /**
          * Actividades del curso vigente: base del aislamiento por curso
          * escolar (las antiguas sin curso se atribuyen por fecha).
+         *
+         * Compatibilidad hacia atrás: las actividades «huérfanas» (sin
+         * `cursoEscolarId` y cuya fecha no se atribuye a ningún curso
+         * configurado) se siguen mostrando en el cronograma y en el
+         * resto de vistas que usan esta función. Esto evita que
+         * actividades creadas antes del aislamiento por curso escolar
+         * desaparezcan de la pantalla «Cronogramas AAEE» cuando sus
+         * fechas no caen en ningún curso escolar configurado (por
+         * ejemplo, porque el curso al que pertenecían se eliminó o
+         * nunca se configuró).
          */
         function getActividadesCursoActivo() {
             const cursoVista = getCursoVistaId();
             if (!cursoVista) {
                 return appData.actividades; // Sin curso configurado: compatibilidad
             }
-            return appData.actividades.filter(a => getCursoEfectivoActividad(a) === cursoVista);
+            return appData.actividades.filter(a => {
+                const cursoEf = getCursoEfectivoActividad(a);
+                // Incluir las del curso aplicado y las huérfanas (sin
+                // cursoEscolarId y sin fecha atribuible a un curso
+                // configurado) para no perder actividades históricas.
+                return cursoEf === cursoVista || cursoEf === null;
+            });
         }
 
         /** Actividades EE de un curso concreto (para lógica de formularios) */
@@ -13140,7 +13156,14 @@ function getActividadesCCVisibles() {
         ? getCursoVistaId()
         : (appData?.config?.cursoEscolarActivo || null);
     if (!cursoVista) return actividadesCC;
-    return actividadesCC.filter(act => getCursoEfectivoActividad(act) === cursoVista);
+    // Compatibilidad hacia atrás: se incluyen también las actividades
+    // «huérfanas» (sin cursoEscolarId y cuya fecha no se atribuye a
+    // ningún curso configurado) para no perder actividades CC creadas
+    // antes del aislamiento por curso escolar.
+    return actividadesCC.filter(act => {
+        const cursoEf = getCursoEfectivoActividad(act);
+        return cursoEf === cursoVista || cursoEf === null;
+    });
 }
 
 /**
