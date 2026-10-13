@@ -279,8 +279,15 @@
             transition: max-height 0.4s ease-out;
         }
 
+        /* Max-height muy elevado: evita que el contenido de un
+           acordeón abierto se corte cuando supere los 2000 px
+           (motivo por el que parte de la pantalla quedaba
+           inaccesible sin scroll). El cuerpo de la página crece
+           de forma natural y el usuario puede desplazarse para
+           ver el resto. La transición CSS sigue funcionando
+           porque animamos max-height, no height. */
         .accordion-content.open {
-            max-height: 2000px;
+            max-height: 200000px;
         }
 
         .accordion-icon {
@@ -5335,6 +5342,22 @@
             
             // Ejecutar migración de datos si es necesario
             migrarDatosAntiguos();
+
+            // Recuperar actividades EE huérfanas (sin cursoEscolarId o
+            // con un curso inexistente): las atribuye al curso que les
+            // corresponde por fecha, creando el curso si falta, para que
+            // no se oculten ni se pierdan al sincronizar con la nube.
+            if (typeof recuperarActividadesHuerfanasEE === 'function') {
+                try {
+                    const r = recuperarActividadesHuerfanasEE();
+                    if (r && r.recuperadas > 0) {
+                        try { localStorage.setItem('aceManagerData', JSON.stringify(appData)); } catch (e) {}
+                        console.log('[RECUPERACIÓN] ' + r.recuperadas + ' actividad(es) EE huérfana(s) atribuida(s). Cursos creados: ' + (r.cursosCreados.length ? r.cursosCreados.join(', ') : 'ninguno'));
+                    }
+                } catch (e) {
+                    console.warn('[RECUPERACIÓN] No se pudo completar la recuperación de actividades huérfanas:', e);
+                }
+            }
         }
 
         // Función para migrar datos antiguos a nuevos formatos
@@ -6603,6 +6626,118 @@
                 cambios += cambiosCC;
             }
             return cambios;
+        }
+
+        /**
+         * Recupera las actividades EE huérfanas (sin `cursoEscolarId` o
+         * con un `cursoEscolarId` que ya no existe) atribuyéndolas al
+         * curso escolar que les corresponde por su fecha (regla
+         * 1-sep → 31-ago). Si la fecha no cae en ningún curso configurado
+         * (porque el curso al que pertenecían se eliminó o nunca se
+         * creó), crea automáticamente ese curso para que la actividad
+         * vuelva a estar asociada a su curso real y se sincronice con
+         * la nube. Devuelve un resumen con el número de actividades
+         * recuperadas y los cursos creados.
+         */
+        function recuperarActividadesHuerfanasEE() {
+            if (typeof getCursoIdPorFecha !== 'function' || typeof getEtiquetaAnoEscolar !== 'function') {
+                return { recuperadas: 0, cursosCreados: [] };
+            }
+            if (!Array.isArray(appData?.config?.cursosEscolares)) {
+                appData.config = appData.config || {};
+                appData.config.cursosEscolares = [];
+            }
+            // Desduplicar cursos escolares por id (y por nombre de curso)
+            // por si la base de datos contuviera entradas repetidas
+            // (p. ej., por una sincronización previa defectuosa). Se
+            // conserva la primera aparición de cada id/nombre.
+            const idsVistos = new Set();
+            const nombresVistos = new Set();
+            const cursosUnicos = [];
+            appData.config.cursosEscolares.forEach(c => {
+                if (!c) return;
+                const clave = c.id || ('nombre:' + (c.nombre || '').replace(/\s+/g, ''));
+                const claveNombre = (c.nombre || '').replace(/\s+/g, '');
+                if (idsVistos.has(clave) || (claveNombre && nombresVistos.has(claveNombre))) return;
+                idsVistos.add(clave);
+                if (claveNombre) nombresVistos.add(claveNombre);
+                cursosUnicos.push(c);
+            });
+            if (cursosUnicos.length !== appData.config.cursosEscolares.length) {
+                appData.config.cursosEscolares = cursosUnicos;
+            }
+            const cursoIds = new Set(appData.config.cursosEscolares.map(c => c.id));
+            // Cache local de cursos creados en esta pasada: evita crear
+            // duplicados cuando varias huérfanas comparten año escolar.
+            const cursosPorEtiqueta = new Map();
+            const cursosCreados = [];
+            let recuperadas = 0;
+
+            (appData.actividades || []).forEach(a => {
+                if (!a) return;
+                // Es huérfana si no tiene cursoEscolarId o si el que tiene
+                // apunta a un curso que ya no existe
+                const esHuerfana = !a.cursoEscolarId || !cursoIds.has(a.cursoEscolarId);
+                if (!esHuerfana) return;
+
+                // 1) Intentar atribuir por fecha a un curso existente
+                let cursoId = getCursoIdPorFecha(a.fecha) || getCursoIdPorFecha(a.createdAt || a.creadoEn);
+
+                // 2) Si no hay curso para esa fecha, crear el curso escolar
+                //    que cubre la fecha (regla 1-sep → 31-ago) para
+                //    recuperar la actividad en su curso real.
+                if (!cursoId) {
+                    const fechaRaw = a.fecha || a.createdAt || a.creadoEn;
+                    const f = fechaRaw ? String(fechaRaw).slice(0, 10) : '';
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(f)) {
+                        const d = new Date(f + 'T00:00:00');
+                        if (!isNaN(d.getTime())) {
+                            const etiqueta = getEtiquetaAnoEscolar(d);
+                            // Si ya existe un curso con ese nombre, usarlo
+                            const existente = appData.config.cursosEscolares.find(c => String(c.nombre || '').replace(/\s+/g, '') === etiqueta);
+                            if (existente) {
+                                cursoId = existente.id;
+                            } else if (cursosPorEtiqueta.has(etiqueta)) {
+                                // Ya lo acabamos de crear en esta misma pasada
+                                cursoId = cursosPorEtiqueta.get(etiqueta).id;
+                            } else {
+                                const y = d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1;
+                                const nuevoCurso = {
+                                    id: 'curso_recuperado_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+                                    nombre: etiqueta,
+                                    anoInicio: y,
+                                    anoFin: y + 1,
+                                    fechaInicio: `${y}-09-01`,
+                                    fechaFin: `${y + 1}-08-31`,
+                                    creadoEn: new Date().toISOString()
+                                };
+                                // Solo se añade una vez a cursosEscolares (la
+                                // referencia de cursosPorEtiqueta apunta al
+                                // mismo objeto, sin duplicar la inserción).
+                                appData.config.cursosEscolares.push(nuevoCurso);
+                                cursoIds.add(nuevoCurso.id);
+                                cursosPorEtiqueta.set(etiqueta, nuevoCurso);
+                                cursosCreados.push(etiqueta);
+                                cursoId = nuevoCurso.id;
+                            }
+                        }
+                    }
+                }
+
+                // 3) Si sigue sin curso (sin fecha y sin curso activo),
+                //    atribuir al curso activo como fallback para que no
+                //    quede huérfana ni se pierda al sincronizar con la nube.
+                if (!cursoId) {
+                    cursoId = appData?.config?.cursoEscolarActivo || null;
+                }
+
+                if (cursoId) {
+                    a.cursoEscolarId = cursoId;
+                    recuperadas++;
+                }
+            });
+
+            return { recuperadas, cursosCreados };
         }
         
         function renderAll() {
@@ -9527,11 +9662,50 @@
                         // Ejecutar migración de datos antiguos (ej: "1 ESO" -> "1º ESO")
                         migrarDatosAntiguos();
                         
+                        // Recuperar actividades EE huérfanas y sincronizar con la
+                        // nube: tras cargar de Firebase, atribuye al curso correcto
+                        // (creando el curso si falta) cualquier actividad sin
+                        // cursoEscolarId. Así las actividades que solo estaban en
+                        // localStorage o que quedaron huérfanas al eliminar un
+                        // curso se persisten en la base de datos.
+                        let resumenRecuperacion = null;
+                        if (typeof recuperarActividadesHuerfanasEE === 'function') {
+                            try {
+                                resumenRecuperacion = recuperarActividadesHuerfanasEE();
+                            } catch (e) {
+                                console.warn('[RECUPERACIÓN] No se pudo completar la recuperación:', e);
+                            }
+                        }
+                        
                         // Persistir en localStorage SIN reenviar a la nube: el ciclo
                         // lectura→escritura pisaría los cambios que otro usuario
                         // guardara entre ambas operaciones
                         saveToLocalStorage(true);
                         renderAll();
+
+                        // Si se recuperaron actividades, sincronizar con la nube
+                        // (con retardo para no interferir con la lectura que acaba
+                        // de terminar) y avisar al usuario.
+                        if (resumenRecuperacion && resumenRecuperacion.recuperadas > 0) {
+                            const msg = 'Recuperadas ' + resumenRecuperacion.recuperadas + ' actividad(es) EE huérfana(s)' +
+                                (resumenRecuperacion.cursosCreados.length ? ' (curso(s) creado(s): ' + resumenRecuperacion.cursosCreados.join(', ') + ')' : '') + '. Se han sincronizado con la nube.';
+                            console.log('[RECUPERACIÓN] ' + msg);
+                            if (typeof showToast === 'function') {
+                                showToast(msg, 'success');
+                            }
+                            try {
+                                if (typeof dbRef !== 'undefined' && dbRef) {
+                                    dbRef.update({
+                                        config: appData.config,
+                                        actividades: appData.actividades,
+                                        lastUpdated: new Date().toISOString()
+                                    }).catch(err => console.warn('[RECUPERACIÓN] No se pudo sincronizar con la nube:', err));
+                                }
+                            } catch (e) {
+                                console.warn('[RECUPERACIÓN] Error al sincronizar con la nube:', e);
+                            }
+                            if (typeof renderCursosEscolares === 'function') renderCursosEscolares();
+                        }
                     }
                 }
                 
