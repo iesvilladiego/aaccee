@@ -6462,6 +6462,12 @@
                     
                     if (tab.dataset.tab === 'cronograma') {
                         renderCronograma();
+                        // Refrescar también el calendario CC: la tarjeta
+                        // «Cronograma AACC» es la visible por defecto al entrar
+                        // en la pestaña, y si la carga asíncrona de Firebase
+                        // terminó antes de este cambio de pestaña, el calendario
+                        // no se repintaría sin esta llamada.
+                        if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
                     }
                     
                     // Inicializar importación desde curso anterior al abrir pestaña Actividades
@@ -9682,6 +9688,12 @@
                         // guardara entre ambas operaciones
                         saveToLocalStorage(true);
                         renderAll();
+                        // Refrescar también los cuadrantes del cronograma:
+                        // renderAll() no los repinta, y si el usuario ya está
+                        // en la pestaña Cronogramas, la tabla EE y el calendario
+                        // CC quedarían vacíos hasta que cambie de pestaña.
+                        if (typeof renderCronograma === 'function') renderCronograma();
+                        if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
 
                         // Si se recuperaron actividades, sincronizar con la nube
                         // (con retardo para no interferir con la lectura que acaba
@@ -11566,6 +11578,9 @@ function cargarActividadesCC() {
             // Cambios locales CC posteriores al inicio de la carga: descartarla
             if (ultimaEscrituraCCEn > cargaCCIniciadaEn) {
                 console.warn('[CC] Carga de la nube descartada: hay cambios locales CC más recientes');
+                // Aunque se descarte la carga, refrescar el calendario por si
+                // datos previos en memoria no se habían pintado todavía
+                if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
                 return;
             }
             
@@ -11579,6 +11594,11 @@ function cargarActividadesCC() {
                 
                 renderizarListaCC();
                 actualizarSelectorCCEdit();
+                // CRÍTICO: refrescar el calendario semanal de la pantalla
+                // «Cronograma AACC». Antes no se llamaba y el calendario
+                // quedaba vacío si la carga de Firebase llegaba después de
+                // inicializarCalendarioCC() (carrera carga/render).
+                if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
             } else {
                 // Si no hay en Firebase, intentar localStorage
                 const stored = localStorage.getItem('aaccee_actividades_cc');
@@ -11588,6 +11608,7 @@ function cargarActividadesCC() {
                         actividadesCC = JSON.parse(stored);
                         renderizarListaCC();
                         actualizarSelectorCCEdit();
+                        if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
                     } catch (e) {
                         console.error('[CC] Error al parsear localStorage:', e);
                     }
@@ -11595,6 +11616,7 @@ function cargarActividadesCC() {
                     actividadesCC = [];
                     renderizarListaCC();
                     actualizarSelectorCCEdit();
+                    if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
                 }
             }
         }).catch(function(error) {
@@ -11606,6 +11628,7 @@ function cargarActividadesCC() {
                     actividadesCC = JSON.parse(stored);
                     renderizarListaCC();
                     actualizarSelectorCCEdit();
+                    if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
                 } catch (e) {
                     console.error('[CC] Error al cargar:', e);
                 }
@@ -11615,6 +11638,7 @@ function cargarActividadesCC() {
                 actividadesCC = [];
                 renderizarListaCC();
                 actualizarSelectorCCEdit();
+                if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
             }
         });
     } else {
@@ -11626,6 +11650,7 @@ function cargarActividadesCC() {
                 actividadesCC = JSON.parse(stored);
                 renderizarListaCC();
                 actualizarSelectorCCEdit();
+                if (typeof renderizarCalendarioCC === 'function') renderizarCalendarioCC();
             } catch (e) {
                 console.error('[CC] Error al cargar:', e);
             }
