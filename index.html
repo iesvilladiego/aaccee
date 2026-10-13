@@ -77,6 +77,47 @@
             box-sizing: border-box;
         }
 
+        /* ============================================================
+           LAYOUT Y SCROLL ROBUSTO
+           Garantiza que la página SIEMPRE pueda crecer en vertical y que
+           el navegador ofrezca scrollbar cuando un acordeón desplegado
+           (u otro contenido dinámico) haga la página más alta que el
+           viewport. Antes, la regla `body { overflow-x: clip }` (en el
+           bloque "MULTIPLATAFORMA Y RESPONSIVIDAD") convertía al body
+           en contenedor de scroll en algunos navegadores, lo que
+           impedía el scroll vertical de página al abrir acordeones.
+           Ahora: <html> es el contenedor de scroll vertical (estándar)
+           y <body> permanece con `overflow: visible` para no
+           interferir. El recorte horizontal vive en `#app` (clip no
+           rompe `position: sticky` del header porque no crea scroll
+           container).
+           ============================================================ */
+        html {
+            overflow-y: auto;                  /* explícito: <html> gestiona el scroll vertical */
+            overscroll-behavior-y: contain;    /* evita "scroll chaining" en móvil */
+        }
+        body {
+            overflow: visible !important;      /* el body NO debe ser contenedor de scroll */
+            max-width: 100vw;
+        }
+        #app {
+            /* Previene el scroll horizontal (tablas/cronogramas anchos)
+               sin convertir a #app ni a body en contenedor de scroll
+               vertical. `clip` (a diferencia de `hidden`) no rompe la
+               posición `sticky` del header. */
+            overflow-x: clip;
+            max-width: 100%;
+        }
+        @supports not (overflow: clip) {
+            /* Fallback para navegadores sin soporte de `clip`: usar
+               `hidden`. Acepta el trade-off de romper sticky en estos
+               navegadores antiguos a cambio de evitar scroll
+               horizontal (mejor perder sticky que ganar scroll-x). */
+            #app {
+                overflow-x: hidden;
+            }
+        }
+
         body {
             font-family: 'DM Sans', sans-serif;
             background-color: var(--bg);
@@ -280,14 +321,17 @@
         }
 
         /* Max-height muy elevado: evita que el contenido de un
-           acordeón abierto se corte cuando supere los 2000 px
-           (motivo por el que parte de la pantalla quedaba
-           inaccesible sin scroll). El cuerpo de la página crece
-           de forma natural y el usuario puede desplazarse para
-           ver el resto. La transición CSS sigue funcionando
-           porque animamos max-height, no height. */
+           acordeón abierto se corte cuando supere los 2000 px.
+           El cuerpo de la página crece de forma natural y <html>
+           proporciona el scrollbar vertical (ver bloque
+           "LAYOUT Y SCROLL ROBUSTO" al inicio del <style>). La
+           transición CSS sigue funcionando porque animamos
+           max-height, no height. */
         .accordion-content.open {
             max-height: 200000px;
+            /* Importante: NO añadir overflow-y: auto aquí. El
+               acordeón debe crecer con su contenido y dejar que
+               sea <html> quien scrollée la página completa. */
         }
 
         .accordion-icon {
@@ -1683,12 +1727,16 @@
             overflow-wrap: break-word;
         }
 
-        /* Evita el scroll horizontal sin romper el header sticky */
-        @supports (overflow: clip) {
-            body {
-                overflow-x: clip;
-            }
-        }
+        /* El recorte horizontal vive ahora en `#app` (ver bloque
+           "LAYOUT Y SCROLL ROBUSTO" al inicio del <style>). Antes
+           este `overflow-x: clip` estaba sobre `body`, pero aunque
+           la especificación CSS diga que `clip` no debería forzar
+           `overflow-y: visible` a `auto`, en la práctica algunos
+           navegadores (Safari/iOS, Chromium antiguos) sí lo hacían:
+           el body se convertía en contenedor de scroll y el scroll
+           vertical de página dejaba de funcionar al abrir acordeones.
+           Movido a `#app` porque `#app` no es contenedor de scroll
+           vertical (lo es <html>) y `clip` no rompe `position: sticky`. */
 
         /* Blur del header con prefijo webkit (Safari) */
         header {
