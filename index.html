@@ -11070,7 +11070,16 @@
             } else {
                 showToast('Informe generado correctamente', 'success');
             }
-            doc.save(`Informe_Cursos_${formatDateTimeFile()}.pdf`);
+            // Nombre de archivo descriptivo: incluye los niveles
+            // seleccionados y el estado, no solo «Cursos». Si hay muchos
+            // niveles, se usa un texto compacto para no superar la longitud
+            // razonable de un nombre de archivo.
+            const nivelesStr = sanitizeFilename(nivelesSeleccionados.length === 0
+                ? 'todos'
+                : (nivelesSeleccionados.length > 2 ? nivelesSeleccionados.length + 'niveles' : nivelesSeleccionados.join('-')),
+                30);
+            const estadoStr = sanitizeFilename(estadoFiltro || 'todas', 15);
+            doc.save(`Informe_EE_Cursos_${nivelesStr}_${estadoStr}_${formatDateTimeFile()}.pdf`);
 
             } catch (error) {
                 console.error('[INFORME] Error en informe por curso:', error);
@@ -11234,7 +11243,14 @@
             } else {
                 showToast('Informe generado', 'success');
             }
-            doc.save(`Informe_Trimestres_${formatDateTimeFile()}.pdf`);
+            // Nombre de archivo descriptivo: incluye los trimestres
+            // seleccionados y el estado, no solo «Trimestres».
+            const trimestresStr = sanitizeFilename(trimestresSeleccionados.length === 0
+                ? 'todos'
+                : (trimestresSeleccionados.length > 2 ? trimestresSeleccionados.length + 'trim' : trimestresSeleccionados.join('-')),
+                25);
+            const estadoTrimStr = sanitizeFilename(estadoFiltro || 'todas', 15);
+            doc.save(`Informe_EE_Trimestres_${trimestresStr}_${estadoTrimStr}_${formatDateTimeFile()}.pdf`);
 
             } catch (error) {
                 console.error('[INFORME] Error en informe por trimestre:', error);
@@ -11524,10 +11540,14 @@
                     `;
                 }
 
-                // Botones de acción
+                // Botones de acción: «Imprimir» abre el diálogo de impresión
+                // del navegador sobre el contenido del cuadrante (antes llamaba
+                // a generateCuadranteGlobalPDF, igual que «Exportar PDF», por lo
+                // que ambos botones eran indistinguibles); «Exportar PDF» sigue
+                // generando el PDF con jsPDF.
                 html += `
                     <div class="flex gap-2 mt-4 pt-4" style="border-top: 1px solid var(--border);">
-                        <button onclick="generateCuadranteGlobalPDF()" class="btn btn-secondary flex-1 text-sm py-2">
+                        <button onclick="imprimirCuadranteGlobalPantalla()" class="btn btn-secondary flex-1 text-sm py-2">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1">
                                 <polyline points="6 9 6 2 18 2 18 9"/>
                                 <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
@@ -11657,7 +11677,14 @@
                         styles: { fontSize: 8 }
                     });
                 }
-                                doc.save(`Cuadrante_Global_${formatDateTimeFile()}.pdf`);
+                // Nombre de archivo descriptivo: incluye el tipo de
+                // actividades incluidas en el cuadrante (CC, EE o ambas).
+                const tipoSel = (typeof document.getElementById('cuadranteTipoActividad') !== 'undefined'
+                    && document.getElementById('cuadranteTipoActividad'))
+                    ? (document.getElementById('cuadranteTipoActividad').value || 'ambas')
+                    : 'ambas';
+                const tipoStr = sanitizeFilename(tipoSel === 'EE' ? 'EE' : (tipoSel === 'CC' ? 'CC' : 'CC_y_EE'), 10);
+                doc.save(`Cuadrante_Global_${tipoStr}_${formatDateTimeFile()}.pdf`);
                 showToast('PDF del Cuadrante Global generado correctamente', 'success');
 
             } catch (error) {
@@ -11865,12 +11892,15 @@
                     doc.text(`• Departamento(s): ${departamentosSeleccionados.join(', ')}`, 14, yPos + (noRealizadas > 0 ? 30 : 24));
                 }
 
-                // Nombre del archivo
+                // Nombre del archivo descriptivo: incluye departamento(s) y
+                // tipo de actividades (todas / realizadas / propuestas).
                 const nombreArchivo = departamentosSeleccionados.length === 1
                     ? departamentosSeleccionados[0].replace(/\s+/g, '_')
-                    : 'multiples';
-
-                doc.save(`Informe_Departamento_${nombreArchivo}_${formatDateTimeFile()}.pdf`);
+                    : (departamentosSeleccionados.length === getDepartamentos().length
+                        ? 'todos'
+                        : departamentosSeleccionados.length + 'dptos');
+                const tipoArchivo = sanitizeFilename(tipoActividad || 'todas', 12);
+                doc.save(`Informe_Departamento_${nombreArchivo}_${tipoArchivo}_${formatDateTimeFile()}.pdf`);
                 showToast('Informe generado correctamente', 'success');
 
             } catch (error) {
@@ -15331,7 +15361,18 @@ function generarPDFCC(doc, tipo) {
         });
     }
 
-    doc.save(`Informe_CC_${formatDateTimeFile()}.pdf`);
+    // Nombre de archivo descriptivo: incluye el tipo de informe (unidad,
+    // período, resumen) y, si existe, el subtítulo registrado por el
+    // generador HTML (que refleja los filtros del usuario: p. ej.
+    // «Unidades: 1º A, 2º B» o «Período: 1 sep 2024 - 30 jun 2025»).
+    const tipoCorto = tipo.replace(/^informe_cc_/, '').replace(/^resumen_/, 'resumen_');
+    const subtituloLimpio = enPantalla && enPantalla.subtitulo
+        ? sanitizeFilename(enPantalla.subtitulo, 50)
+        : '';
+    const partesNombre = ['Informe_CC', sanitizeFilename(tipoCorto, 25)];
+    if (subtituloLimpio) partesNombre.push(subtituloLimpio);
+    partesNombre.push(formatDateTimeFile());
+    doc.save(partesNombre.join('_') + '.pdf');
     showToast('PDF generado correctamente', 'success');
 }
 /**
@@ -15444,7 +15485,18 @@ function generarPDFEE(doc, tipo) {
         });
     }
 
-    doc.save(`Informe_EE_${formatDateTimeFile()}.pdf`);
+    // Nombre de archivo descriptivo: incluye el tipo de informe
+    // (curso_trim, período, resumen) y, si existe, el subtítulo
+    // registrado por el generador HTML (que refleja los filtros del
+    // usuario: p. ej. «12 actividad(es)» o «Período: 1 sep 2024 - …»).
+    const tipoCortoEE = tipo.replace(/^informe_ee_/, '').replace(/^resumen_/, 'resumen_');
+    const subtituloLimpioEE = enPantalla && enPantalla.subtitulo
+        ? sanitizeFilename(enPantalla.subtitulo, 50)
+        : '';
+    const partesNombreEE = ['Informe_EE', sanitizeFilename(tipoCortoEE, 25)];
+    if (subtituloLimpioEE) partesNombreEE.push(subtituloLimpioEE);
+    partesNombreEE.push(formatDateTimeFile());
+    doc.save(partesNombreEE.join('_') + '.pdf');
     showToast('PDF generado correctamente', 'success');
 }
 /**
@@ -15570,8 +15622,11 @@ function generateInformeEECursoTrim() {
             if (!coincideCurso || !coincideTrim) return false;
 
             // Filtrar por estado
+            // Nota: 'propuestas' incluye las marcadas como 'noRealizada'
+            // (propuesta que no llegó a realizarse), por consistencia con
+            // generateInformeDepartamento y generateInformeTrimestre.
             if (estado === 'realizadas') return act.fecha && !act.noRealizada;
-            if (estado === 'propuestas') return !act.fecha;
+            if (estado === 'propuestas') return !act.fecha || act.noRealizada === true;
             if (estado === 'no_realizadas') return act.noRealizada;
 
             return true;
@@ -15730,7 +15785,7 @@ function generateInformeEEPeriodo() {
 
         if (!fechaDesde || !fechaHasta) {
             if (typeof mostrarToast === 'function') {
-                showToast('Selecciona un rango de fechas', 'warning');
+                showToast('Selecciona un rango de fechas (solo se incluyen actividades con fecha asignada)', 'warning');
             }
             return;
         }
@@ -15742,7 +15797,9 @@ function generateInformeEEPeriodo() {
             return;
         }
 
-        // Filtrar actividades por rango de fechas (solo las que tienen fecha)
+        // Filtrar actividades por rango de fechas (solo las que tienen fecha
+        // asignada; las propuestas sin fecha se excluyen del informe por
+        // período, igual que en generateInformeCCPeriodo)
         const filtradas = actividadesCurso
             .filter(act => act.fecha && act.fecha >= fechaDesde && act.fecha <= fechaHasta)
  .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
@@ -15779,7 +15836,7 @@ function generateInformeEEPeriodo() {
                 <div class="p-4" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white;">
                     <h4 class="font-bold text-lg">Informe de Actividades EE por Período</h4>
                     <p class="text-sm opacity-90">Período: ${desdeFormateada} - ${hastaFormateada}</p>
-                    <p class="text-sm opacity-90">Total: ${filtradas.length} actividad(es)</p>
+                    <p class="text-sm opacity-90">Total: ${filtradas.length} actividad(es) con fecha asignada</p>
                 </div>
                 <div class="p-4" style="background: var(--card);">
                     <div class="space-y-3 max-h-96 overflow-y-auto">
@@ -16070,6 +16127,63 @@ function generateResumenEE() {
         }
     }
 }
+
+        // ============================================================
+        // HELPERS DE INFORMES (añadidos tras revisión de botones)
+        // ============================================================
+        /**
+         * Sanitiza un texto para usarlo como parte de un nombre de archivo
+         * PDF. Elimina acentos básicos (sustituye por su letra base),
+         * reemplaza / \ : * ? " < > | , y espacios por guion bajo,
+         * colapsa guiones bajos consecutivos y recorta a max_len caracteres.
+         * @param {string} text - Texto a sanitizar
+         * @param {number} [maxLen=60] - Longitud máxima del resultado
+         * @returns {string} Texto seguro para nombre de archivo
+         */
+        function sanitizeFilename(text, maxLen) {
+            if (text === undefined || text === null) return '';
+            maxLen = (typeof maxLen === 'number' && maxLen > 0) ? maxLen : 60;
+            // Mapa de acentos → base (ASCII). Incluye mayúsculas/minúsculas
+            // y algunos símbolos comunes en español.
+            const mapaAcentos = {
+                'á':'a','é':'e','í':'i','ó':'o','ú':'u','ñ':'n','ü':'u',
+                'Á':'A','É':'E','Í':'I','Ó':'O','Ú':'U','Ñ':'N','Ü':'U',
+                'à':'a','è':'e','ì':'i','ò':'o','ù':'u',
+                'À':'A','È':'E','Ì':'I','Ò':'O','Ù':'U',
+                'ç':'c','Ç':'C'
+            };
+            let s = String(text)
+                .replace(/[áéíóúñüÁÉÍÓÚÑÜàèìòùÀÈÌÒÙçÇ]/g, c => mapaAcentos[c] || c);
+            // Reemplaza caracteres problemáticos por _ (incluye espacios y comas)
+            s = s.replace(/[\\/:*?\"<>|,\s]+/g, '_');
+            // Colapsa múltiples _ consecutivos
+            s = s.replace(/_+/g, '_');
+            // Recorta y limpia extremos
+            s = s.replace(/^_+|_+$/g, '');
+            if (s.length > maxLen) {
+                s = s.substring(0, maxLen).replace(/_+$/, '').replace(/^_+/, '');
+            }
+            return s || 'informe';
+        }
+
+        /**
+         * Imprime el cuadrante global mostrado en pantalla abriendo el
+         * diálogo de impresión del navegador sobre el contenido del
+         * contenedor. La hoja de impresión solo muestra el cuadrante
+         * (gracias a las reglas @media print ya existentes en el CSS).
+         * Sustituye al botón «Imprimir» que antes llamaba a
+         * generateCuadranteGlobalPDF() (idéntico a «Exportar PDF»).
+         */
+        function imprimirCuadranteGlobalPantalla() {
+            const cont = document.getElementById('resultadoCuadranteGlobal');
+            if (!cont || cont.classList.contains('hidden') || !cont.innerHTML.trim()) {
+                showToast('Genera primero el cuadrante con el botón «Generar cuadrante global» antes de imprimirlo', 'warning');
+                return;
+            }
+            // El navegador respeta las reglas @media print del CSS de la
+            // app para mostrar tarjetas y ocultar elementos decorativos.
+            window.print();
+        }
 
     </script>
 
