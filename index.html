@@ -11670,7 +11670,24 @@
         }
 
         /**
-         * Genera el cuadrante global en formato PDF (función separada)
+         * Genera el cuadrante global en PDF, ajustando el contenido a UNA
+         * sola página apaisada (landscape A4). Si el número de actividades
+         * es muy elevado, se reduce automáticamente el tamaño de fuente de
+         * las tablas (con un mínimo de 4pt) hasta que todo cabe en una
+         * sola página, en lugar de saltar a una segunda.
+         *
+         * La estrategia es la siguiente:
+         * 1. Calcula el número total de filas (EE + CC) que se van a
+         *    volcar al PDF.
+         * 2. Estima un fontSize inicial basado en el número de filas.
+         * 3. Renderiza el PDF (header + sección EE + sección CC). La
+         *    librería autoTable, por defecto, añade páginas nuevas
+         *    cuando el contenido no cabe en la página actual.
+         * 4. Tras renderizar, comprueba `doc.internal.pages.length`:
+         *    si > 1, significa que autoTable añadió páginas. En ese
+         *    caso, se reduce el fontSize y se reintenta desde cero.
+         * 5. Como máximo, hace 6 intentos (de fontSizeInicial a
+         *    fontSizeInicial - 5), siempre con fontSize >= 4.
          */
         function generateCuadranteGlobalPDF() {
             try {
@@ -11679,95 +11696,218 @@
                     return;
                 }
 
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF('landscape'); // Horizontal para cuadrante
-
-                addPDFHeader(doc, 'Cuadrante Global de Actividades', true);
+                // Tipo seleccionado por el usuario (CC, EE o ambas) —
+                // afecta al nombre del archivo y a qué secciones se
+                // incluyen en el PDF.
+                const tipoSelEl = (typeof document.getElementById('cuadranteTipoActividad') !== 'undefined'
+                    && document.getElementById('cuadranteTipoActividad'))
+                    ? document.getElementById('cuadranteTipoActividad') : null;
+                const tipoSel = tipoSelEl ? (tipoSelEl.value || 'ambas') : 'ambas';
 
                 // Obtener datos
-                const actividadesEE = typeof getActividadesCursoActivo === 'function'
-                    ? getActividadesCursoActivo() : [];
-                const actividadesCCData = (typeof getActividadesCCVisibles === 'function')
-                    ? getActividadesCCVisibles()
-                    : (Array.isArray(actividadesCC) ? actividadesCC : []);
+                const actividadesEE = (tipoSel === 'ambas' || tipoSel === 'EE')
+                    ? (typeof getActividadesCursoActivo === 'function' ? getActividadesCursoActivo() : [])
+                    : [];
+                const actividadesCCData = (tipoSel === 'ambas' || tipoSel === 'CC')
+                    ? ((typeof getActividadesCCVisibles === 'function')
+                        ? getActividadesCCVisibles()
+                        : (Array.isArray(actividadesCC) ? actividadesCC : []))
+                    : [];
 
-                let yPos = 45;
-
-                // Sección EE (Verde)
-                if (actividadesEE.length > 0) {
-                    doc.setFontSize(12);
-                    doc.setFont(undefined, 'bold');
-                    doc.setTextColor(5, 150, 105); // Verde
-                    doc.text(`ACTIVIDADES EXTRAESCOLARES (EE): ${actividadesEE.length}`, 14, yPos);
-                    yPos += 8;
-
-                    const tableDataEE = actividadesEE.map(act => [
-                        (getCursosActividad(act).join(', ') || '-'),
-                        act.trimestre || '-',
-                        truncarPDF(act.nombre || 'Sin nombre', 35),
-                        act.fecha ? formatDate(act.fecha) : '-'
-                    ]);
-
-                    if (yPos < 180) { // Solo si hay espacio
- doc.autoTable({
- startY: yPos,
- head: [['Curso', 'Trim.', 'Actividad', 'Fecha']],
- body: tableDataEE,
- theme: 'striped',
- headStyles: { fillColor: [5, 150, 105] },
- margin: { left: 14 },
- styles: { fontSize: 7 },
- columnStyles: {
- 0: { cellWidth: 20 },
- 1: { cellWidth: 18 },
- 2: { cellWidth: 80 },
- 3: { cellWidth: 25 }
- }
- });
-
- yPos = doc.lastAutoTable.finalY + 10;
- }
- }
-
- // Sección CC (Naranja): antes, si la tabla EE era larga, la
- // sección CC se OMITÍA por completo (y con ella actividades del
- // cuadrante) sin aviso; ahora continúa en página nueva
- if (actividadesCCData.length > 0) {
-                    if (yPos > 180) {
-                        doc.addPage();
-                        yPos = 20;
-                    }
-                    doc.setFontSize(12);
-                    doc.setFont(undefined, 'bold');
-                    doc.setTextColor(249, 115, 22); // Naranja
-                    doc.text(`ACTIVIDADES COMPLEMENTARIAS (CC): ${actividadesCCData.length}`, 14, yPos);
-                    yPos += 8;
-
-                    const tableDataCC = actividadesCCData.map(act => [
-                        (getUnidadesActividadCC(act).join(', ') || '-'),
-                        truncarPDF(act.nombre || 'Sin nombre', 40),
-                        act.fecha ? formatDate(act.fecha) : '-'
-                    ]);
-
-                    doc.autoTable({
-                        startY: yPos,
-                        head: [['Unidad', 'Actividad', 'Fecha']],
-                        body: tableDataCC,
-                        theme: 'striped',
-                        headStyles: { fillColor: [249, 115, 22] },
-                        margin: { left: 14 },
-                        styles: { fontSize: 8 }
-                    });
-                }
-                // Nombre de archivo descriptivo: incluye el tipo de
-                // actividades incluidas en el cuadrante (CC, EE o ambas).
-                const tipoSel = (typeof document.getElementById('cuadranteTipoActividad') !== 'undefined'
-                    && document.getElementById('cuadranteTipoActividad'))
-                    ? (document.getElementById('cuadranteTipoActividad').value || 'ambas')
-                    : 'ambas';
                 const tipoStr = sanitizeFilename(tipoSel === 'EE' ? 'EE' : (tipoSel === 'CC' ? 'CC' : 'CC_y_EE'), 10);
-                doc.save(`Cuadrante_Global_${tipoStr}_${formatDateTimeFile()}.pdf`);
-                showToast('PDF del Cuadrante Global generado correctamente', 'success');
+                const nombreArchivo = `Cuadrante_Global_${tipoStr}_${formatDateTimeFile()}.pdf`;
+
+                // Si no hay datos, generar un PDF con un mensaje.
+                if (actividadesEE.length === 0 && actividadesCCData.length === 0) {
+                    const { jsPDF: jsPDF_v } = window.jspdf;
+                    const docV = new jsPDF_v('landscape');
+                    addPDFHeader(docV, 'Cuadrante Global de Actividades', true);
+                    docV.setFontSize(12);
+                    docV.setTextColor(107, 114, 128);
+                    docV.text('No hay actividades que mostrar para el tipo seleccionado.', 14, 60);
+                    docV.save(nombreArchivo);
+                    showToast('No hay actividades que mostrar; PDF generado vacío', 'warning');
+                    return;
+                }
+
+                // Preparar los datos tabulares una sola vez (no dependen
+                // del fontSize, así que reutilizarlos en cada intento).
+                const tableDataEE = actividadesEE.map(act => [
+                    (getCursosActividad(act).join(', ') || '-'),
+                    act.trimestre || '-',
+                    truncarPDF(act.nombre || 'Sin nombre', 35),
+                    act.fecha ? formatDate(act.fecha) : '-'
+                ]);
+                const tableDataCC = actividadesCCData.map(act => [
+                    (getUnidadesActividadCC(act).join(', ') || '-'),
+                    truncarPDF(act.nombre || 'Sin nombre', 40),
+                    act.fecha ? formatDate(act.fecha) : '-'
+                ]);
+
+                // Estimación inicial del fontSize basada en el número
+                // total de filas. En A4 landscape (297x210mm), con
+                // header de 35mm y pie de 10mm, quedan ~165mm útiles.
+                // Valores conservadores: cada fila ocupa ~6-8mm a fs 7,
+                // ~4-5mm a fs 5, ~3mm a fs 4, ~2.5mm a fs 3.
+                const totalFilas = tableDataEE.length + tableDataCC.length;
+                let fontSizeInicial;
+                if (totalFilas <= 12) fontSizeInicial = 8;
+                else if (totalFilas <= 20) fontSizeInicial = 7;
+                else if (totalFilas <= 30) fontSizeInicial = 6;
+                else if (totalFilas <= 45) fontSizeInicial = 5;
+                else if (totalFilas <= 60) fontSizeInicial = 4;
+                else fontSizeInicial = 3;
+
+                const { jsPDF } = window.jspdf;
+
+                // Intentos de ajuste: empezamos con fontSizeInicial y
+                // vamos reduciendo (en pasos de 1pt) hasta que todo
+                // quepa en una sola página. Mínimo 3pt (legible en A4
+                // landscape impreso a escala 1:1, aunque algo pequeño).
+                let fontSizeActual = fontSizeInicial;
+                let docFinal = null;
+                let intentos = 0;
+                const MIN_FONT = 3;
+                let avisoCompacMax = false;
+
+                while (fontSizeActual >= MIN_FONT && intentos < 8) {
+                    intentos++;
+                    const doc = new jsPDF('landscape');
+                    addPDFHeader(doc, 'Cuadrante Global de Actividades', true);
+
+                    // Padding de celda pequeño (0.2pt-0.5pt) para
+                    // compactar al máximo en una sola página A4. Con
+                    // fontSize 3, padding 0.5pt; con fontSize 8, padding
+                    // 1.2pt. La altura de cada fila a fs 3 + padding 0.5
+                    // es ~2.7mm, lo que permite ~60 filas por página.
+                    const paddingCell = Math.max(0.2, fontSizeActual * 0.15);
+                    // yPos inicial: 38mm en lugar de 45 para ganar 7mm
+                    // útiles. El header ocupa 35mm; 38 deja 3mm de aire
+                    // sobre la primera tabla.
+                    let yPos = 38;
+
+                    // Sección EE (Verde)
+                    if (tableDataEE.length > 0) {
+                        doc.setFontSize(Math.max(fontSizeActual + 1, 6));
+                        doc.setFont(undefined, 'bold');
+                        doc.setTextColor(5, 150, 105);
+                        doc.text(`ACTIVIDADES EXTRAESCOLARES (EE): ${actividadesEE.length}`, 14, yPos);
+                        yPos += 6;
+
+                        doc.autoTable({
+                            startY: yPos,
+                            head: [['Curso', 'Trim.', 'Actividad', 'Fecha']],
+                            body: tableDataEE,
+                            theme: 'striped',
+                            headStyles: { fillColor: [5, 150, 105], fontSize: fontSizeActual, cellPadding: paddingCell },
+                            margin: { left: 14, right: 14 },
+                            styles: { fontSize: fontSizeActual, cellPadding: paddingCell, overflow: 'linebreak' },
+                            columnStyles: {
+                                0: { cellWidth: 20 },
+                                1: { cellWidth: 32 },
+                                2: { cellWidth: 165 },
+                                3: { cellWidth: 28 }
+                            }
+                        });
+
+                        yPos = doc.lastAutoTable.finalY + 6;
+                    }
+
+                    // Sección CC (Naranja)
+                    if (tableDataCC.length > 0) {
+                        doc.setFontSize(Math.max(fontSizeActual + 1, 6));
+                        doc.setFont(undefined, 'bold');
+                        doc.setTextColor(249, 115, 22);
+                        doc.text(`ACTIVIDADES COMPLEMENTARIAS (CC): ${actividadesCCData.length}`, 14, yPos);
+                        yPos += 6;
+
+                        doc.autoTable({
+                            startY: yPos,
+                            head: [['Unidad', 'Actividad', 'Fecha']],
+                            body: tableDataCC,
+                            theme: 'striped',
+                            headStyles: { fillColor: [249, 115, 22], fontSize: fontSizeActual, cellPadding: paddingCell },
+                            margin: { left: 14, right: 14 },
+                            styles: { fontSize: fontSizeActual, cellPadding: paddingCell, overflow: 'linebreak' },
+                            columnStyles: {
+                                0: { cellWidth: 25 },
+                                1: { cellWidth: 200 },
+                                2: { cellWidth: 25 }
+                            }
+                        });
+                    }
+
+                    // Comprobar si autoTable añadió páginas adicionales.
+                    // `doc.internal.pages` es un array donde pages[0] es
+                    // metadata y pages[1..N] son las páginas reales.
+                    const numPaginas = (doc.internal.pages && doc.internal.pages.length)
+                        ? doc.internal.pages.length - 1 : 1;
+                    if (numPaginas === 1) {
+                        // Todo cabe en una sola página: este es el PDF final.
+                        docFinal = doc;
+                        break;
+                    }
+                    // Si hay más de 1 página, reducir fontSize y reintentar.
+                    fontSizeActual -= 1;
+                }
+
+                // Si después de todos los intentos no cupo todo en una
+                // página, usar el último doc generado (con fontSize
+                // mínimo) y avisar al usuario.
+                if (!docFinal) {
+                    // Generar uno final con fontSize = MIN_FONT (con el
+                    // último fontSize del bucle, que es MIN_FONT si salió
+                    // por la condición fontSize >= MIN_FONT).
+                    fontSizeActual = MIN_FONT;
+                    const doc = new jsPDF('landscape');
+                    addPDFHeader(doc, 'Cuadrante Global de Actividades', true);
+                    const paddingCell = Math.max(0.2, MIN_FONT * 0.15);
+                    let yPos = 38;
+                    if (tableDataEE.length > 0) {
+                        doc.setFontSize(6);
+                        doc.setFont(undefined, 'bold');
+                        doc.setTextColor(5, 150, 105);
+                        doc.text(`ACTIVIDADES EXTRAESCOLARES (EE): ${actividadesEE.length}`, 14, yPos);
+                        yPos += 6;
+                        doc.autoTable({
+                            startY: yPos,
+                            head: [['Curso', 'Trim.', 'Actividad', 'Fecha']],
+                            body: tableDataEE,
+                            theme: 'striped',
+                            headStyles: { fillColor: [5, 150, 105], fontSize: MIN_FONT, cellPadding: paddingCell },
+                            margin: { left: 14, right: 14 },
+                            styles: { fontSize: MIN_FONT, cellPadding: paddingCell, overflow: 'linebreak' },
+                            columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 32 }, 2: { cellWidth: 165 }, 3: { cellWidth: 28 } }
+                        });
+                        yPos = doc.lastAutoTable.finalY + 6;
+                    }
+                    if (tableDataCC.length > 0) {
+                        doc.setFontSize(6);
+                        doc.setFont(undefined, 'bold');
+                        doc.setTextColor(249, 115, 22);
+                        doc.text(`ACTIVIDADES COMPLEMENTARIAS (CC): ${actividadesCCData.length}`, 14, yPos);
+                        yPos += 6;
+                        doc.autoTable({
+                            startY: yPos,
+                            head: [['Unidad', 'Actividad', 'Fecha']],
+                            body: tableDataCC,
+                            theme: 'striped',
+                            headStyles: { fillColor: [249, 115, 22], fontSize: MIN_FONT, cellPadding: paddingCell },
+                            margin: { left: 14, right: 14 },
+                            styles: { fontSize: MIN_FONT, cellPadding: paddingCell, overflow: 'linebreak' },
+                            columnStyles: { 0: { cellWidth: 25 }, 1: { cellWidth: 200 }, 2: { cellWidth: 25 } }
+                        });
+                    }
+                    docFinal = doc;
+                    avisoCompacMax = true;
+                }
+
+                docFinal.save(nombreArchivo);
+                if (avisoCompacMax) {
+                    showToast('Cuadrante muy extenso; se ha compactado al máximo posible. Es posible que necesite revisar el PDF.', 'warning');
+                } else {
+                    showToast('PDF del Cuadrante Global generado correctamente', 'success');
+                }
 
             } catch (error) {
                 console.error('[PDF] Error:', error);
