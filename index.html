@@ -11725,7 +11725,8 @@
                 if (actividadesEE.length === 0 && actividadesCCData.length === 0) {
                     const { jsPDF: jsPDF_v } = window.jspdf;
                     const docV = new jsPDF_v('landscape');
-                    addPDFHeader(docV, 'Cuadrante Global de Actividades', true);
+                    const cursoVacio = (typeof getNombreCursoVista === 'function') ? (getNombreCursoVista() || '') : '';
+                    addPDFHeader(docV, 'Cuadrante Global de Actividades', true, cursoVacio);
                     docV.setFontSize(12);
                     docV.setTextColor(107, 114, 128);
                     docV.text('No hay actividades que mostrar para el tipo seleccionado.', 14, 60);
@@ -11738,14 +11739,17 @@
                 const doc = new jsPDF('landscape');
                 const pageWidth = doc.internal.pageSize.getWidth();   // ~297mm
                 const pageHeight = doc.internal.pageSize.getHeight(); // ~210mm
-                addPDFHeader(doc, 'Cuadrante Global de Actividades', true);
+                const cursoEscolarVista = (typeof getNombreCursoVista === 'function') ? (getNombreCursoVista() || '') : '';
+                addPDFHeader(doc, 'Cuadrante Global de Actividades', true, cursoEscolarVista);
 
                 // === Constantes de paginación ===
                 // El header ocupa 35mm. Tras él, dejamos 5mm y empezamos
                 // a pintar el título del cuadrante. Margen inferior 10mm.
                 const MARGIN_LEFT = 14;
                 const MARGIN_RIGHT = 14;
-                const MARGIN_TOP = 38;       // Y inicial tras el header
+                // MARGIN_TOP: 38mm si no hay curso escolar (header 35 + 3 aire),
+                // 41mm si lo hay (header 38 + 3 aire).
+                const MARGIN_TOP = cursoEscolarVista ? 41 : 38;
                 const MARGIN_BOTTOM = 10;
                 const anchoUtil = pageWidth - MARGIN_LEFT - MARGIN_RIGHT; // ~269mm
 
@@ -11817,24 +11821,65 @@
                     };
                     const colorCursoDefault = [107, 114, 128];
 
-                    // Altura de cada fila: debe ser suficiente para
-                    // mostrar hasta 5 actividades con nombre (8mm cada
-                    // una con nombre + fecha). Total: 5 × 8 = 40mm. Como
-                    // la tabla EE solo tiene 4 filas (4 cursos), 40mm × 4
-                    // = 160mm, que cabe en el A4 landscape (210mm - 35mm
-                    // header - 10mm margen inferior = 165mm útiles).
-                    const alturaFilaEE = 40;
+                    // Altura de cada fila: se calcula dinámicamente
+                    // según el contenido de la celda más densa de toda
+                    // la fila. Cada actividad ocupa (4 + N_lineas_nombre * 3
+                    // + 3) mm, donde N_lineas_nombre es el número de líneas
+                    // en que se divide el nombre al ajustarlo al ancho de
+                    // la columna. Si la celda tiene 4 actividades + "(+N
+                    // más)", se reserva espacio para 5 elementos.
+                    // Como el cálculo depende del contenido, primero
+                    // recorremos todas las celdas para determinar la altura
+                    // máxima necesaria por fila.
 
+                    // Ancho de texto útil dentro de cada celda de trimestre
+                    // (descontando el padding y el espacio del indicador V/O/X).
+                    const anchoTextoEE = colTrimWidth - paddingEE * 2 - 4;
+
+                    // Función auxiliar: calcula la altura necesaria para
+                    // una celda (sin pintar nada, solo medidas).
+                    function alturaCeldaEE(acts) {
+                        if (acts.length === 0) return 8; // Sin actividades
+                        const maxActs = 4;
+                        const actsAMostrar = acts.slice(0, maxActs);
+                        let h = 4; // margen superior
+                        actsAMostrar.forEach(act => {
+                            // Líneas del nombre (splitTextToSize devuelve array)
+                            const nombre = act.nombre || 'Sin nombre';
+                            const lineas = doc.splitTextToSize(nombre, anchoTextoEE);
+                            // 3mm por línea de nombre + 3mm para fecha
+                            h += lineas.length * 3 + 3;
+                        });
+                        if (acts.length > maxActs) h += 4; // línea (+N más)
+                        return Math.max(h, 8);
+                    }
+
+                    // Recorrer las filas, calcular la altura por fila y
+                    // pintar el contenido.
                     cursosDisponibles.forEach((curso) => {
-                        const filaInicioY = yPos;
-                        // Fondo de la celda Curso
+                        // Calcular la altura de esta fila según la celda
+                        // más densa (todas las celdas de la fila tienen
+                        // la misma altura).
+                        let alturaFila = 8;
+                        trimestresDisponibles.forEach((trim) => {
+                            const acts = actividadesEE.filter(a =>
+                                getCursosActividad(a).includes(curso) && a.trimestre === trim
+                            );
+                            const h = alturaCeldaEE(acts);
+                            if (h > alturaFila) alturaFila = h;
+                        });
+                        // Limitar a un máximo de 45mm por fila para no
+                        // desbordar el A4 landscape (4 filas × 45 = 180mm,
+                        // que cabe en 165-170mm útiles tras header).
+                        alturaFila = Math.min(alturaFila, 45);
+
+                        // Fondo de la celda Curso (color por nivel)
                         const cColor = cursoColors[curso] || colorCursoDefault;
                         doc.setFillColor(cColor[0], cColor[1], cColor[2]);
-                        doc.rect(MARGIN_LEFT, yPos, colCursoWidth, alturaFilaEE, 'F');
-                        // Texto del curso (en blanco, centrado verticalmente)
+                        doc.rect(MARGIN_LEFT, yPos, colCursoWidth, alturaFila, 'F');
                         doc.setTextColor(255, 255, 255);
                         doc.setFont(undefined, 'bold');
-                        doc.text(curso, MARGIN_LEFT + colCursoWidth / 2, yPos + alturaFilaEE / 2 + 1, { align: 'center' });
+                        doc.text(curso, MARGIN_LEFT + colCursoWidth / 2, yPos + alturaFila / 2 + 1, { align: 'center' });
 
                         // Celdas por trimestre
                         doc.setFont(undefined, 'normal');
@@ -11842,7 +11887,7 @@
                             const xCelda = MARGIN_LEFT + colCursoWidth + idx * colTrimWidth;
                             // Fondo de la celda
                             doc.setFillColor(248, 247, 244); // --bg
-                            doc.rect(xCelda, yPos, colTrimWidth, alturaFilaEE, 'F');
+                            doc.rect(xCelda, yPos, colTrimWidth, alturaFila, 'F');
 
                             // Filtrar actividades de este curso+trimestre
                             const acts = actividadesEE.filter(a =>
@@ -11852,73 +11897,80 @@
                             // Borde derecho de la celda
                             doc.setDrawColor(229, 231, 235);
                             doc.setLineWidth(0.2);
-                            doc.line(xCelda + colTrimWidth, yPos, xCelda + colTrimWidth, yPos + alturaFilaEE);
+                            doc.line(xCelda + colTrimWidth, yPos, xCelda + colTrimWidth, yPos + alturaFila);
 
-                            // Contenido: dibujar cada actividad como una línea
-                            // con su indicador (✓/○/✗) y su fecha. Se muestran
-                            // hasta maxActs actividades; si hay más, se
-                            // muestra "(+N más)" en el último slot disponible
-                            // DENTRO de la celda.
-                            let yAct = yPos + 5;
-                            const maxActs = 4; // 4 actividades + 1 línea "(+N más)"
-                            const actsAMostrar = acts.slice(0, maxActs);
-                            actsAMostrar.forEach(act => {
-                                let esRealizada = false, esNoRealizada = false;
-                                try {
-                                    esRealizada = typeof esActividadRealizada === 'function' ? esActividadRealizada(act) : false;
-                                    esNoRealizada = act.noRealizada === true;
-                                } catch (e) {}
-                                let indicador, textColorRGB;
-                                if (esNoRealizada) { indicador = 'X'; textColorRGB = [220, 38, 38]; }
-                                else if (esRealizada) { indicador = 'V'; textColorRGB = [5, 150, 105]; }
-                                else { indicador = 'O'; textColorRGB = [217, 119, 6]; }
-
-                                // Truncar el nombre a ~40 caracteres para que quepa
-                                const nombre = truncarPDF(act.nombre || 'Sin nombre', 40);
-                                const fechaStr = act.fecha ? formatDate(act.fecha) : '';
-
-                                // Indicador (en color)
-                                doc.setTextColor(textColorRGB[0], textColorRGB[1], textColorRGB[2]);
-                                doc.setFont(undefined, 'bold');
-                                doc.text(indicador, xCelda + paddingEE, yAct);
-                                // Nombre (en color fg por defecto)
-                                doc.setTextColor(45, 45, 45);
-                                doc.setFont(undefined, 'normal');
-                                doc.text(nombre, xCelda + paddingEE + 4, yAct);
-                                // Fecha (en color del indicador, en la siguiente línea)
-                                if (fechaStr) {
-                                    doc.setTextColor(textColorRGB[0], textColorRGB[1], textColorRGB[2]);
-                                    doc.setFontSize(fontSizeEE - 2);
-                                    doc.text(fechaStr, xCelda + paddingEE + 4, yAct + 3);
-                                    doc.setFontSize(fontSizeEE);
-                                    yAct += 8;
-                                } else {
-                                    yAct += 5;
-                                }
-                            });
-
-                            // Si hay más actividades que las mostradas, indicar "(+N más)"
-                            // en el quinto slot, DENTRO del fondo de la celda.
-                            if (acts.length > maxActs) {
-                                doc.setTextColor(107, 114, 128);
-                                doc.setFontSize(fontSizeEE - 1);
-                                doc.setFont(undefined, 'italic');
-                                doc.text(`(+${acts.length - maxActs} más)`, xCelda + paddingEE, yAct + 2);
-                                doc.setFont(undefined, 'normal');
-                                doc.setFontSize(fontSizeEE);
-                            } else if (acts.length === 0) {
+                            // Contenido: dibujar cada actividad. El nombre
+                            // se ajusta al ancho de la columna con
+                            // splitTextToSize, dividiéndolo en varias líneas
+                            // si es necesario. La fecha va en la última línea
+                            // del bloque, en un fontSize menor.
+                            const maxActs = 4;
+                            let yAct = yPos + 4;
+                            if (acts.length === 0) {
                                 doc.setTextColor(156, 163, 175);
                                 doc.setFont(undefined, 'italic');
-                                doc.text('Sin actividades', xCelda + paddingEE, yPos + alturaFilaEE / 2 + 1);
+                                doc.text('Sin actividades', xCelda + paddingEE, yPos + alturaFila / 2 + 1);
                                 doc.setFont(undefined, 'normal');
+                            } else {
+                                const actsAMostrar = acts.slice(0, maxActs);
+                                actsAMostrar.forEach(act => {
+                                    let esRealizada = false, esNoRealizada = false;
+                                    try {
+                                        esRealizada = typeof esActividadRealizada === 'function' ? esActividadRealizada(act) : false;
+                                        esNoRealizada = act.noRealizada === true;
+                                    } catch (e) {}
+                                    let indicador, textColorRGB;
+                                    if (esNoRealizada) { indicador = 'X'; textColorRGB = [220, 38, 38]; }
+                                    else if (esRealizada) { indicador = 'V'; textColorRGB = [5, 150, 105]; }
+                                    else { indicador = 'O'; textColorRGB = [217, 119, 6]; }
+
+                                    const nombre = act.nombre || 'Sin nombre';
+                                    const fechaStr = act.fecha ? formatDate(act.fecha) : '';
+
+                                    // Indicador (en color, en la primera línea
+                                    // del bloque del nombre)
+                                    doc.setTextColor(textColorRGB[0], textColorRGB[1], textColorRGB[2]);
+                                    doc.setFont(undefined, 'bold');
+                                    doc.text(indicador, xCelda + paddingEE, yAct);
+                                    // Nombre: se ajusta al ancho de la columna
+                                    // con splitTextToSize. Se pinta a partir de
+                                    // xCelda + paddingEE + 4 (dejando espacio para
+                                    // el indicador). Cada línea avanza 3mm.
+                                    doc.setTextColor(45, 45, 45);
+                                    doc.setFont(undefined, 'normal');
+                                    const lineasNombre = doc.splitTextToSize(nombre, anchoTextoEE);
+                                    lineasNombre.forEach((linea, i) => {
+                                        doc.text(linea, xCelda + paddingEE + 4, yAct + i * 3);
+                                    });
+                                    yAct += lineasNombre.length * 3;
+                                    // Fecha (debajo del nombre, en color del
+                                    // indicador, en fontSize menor)
+                                    if (fechaStr) {
+                                        doc.setTextColor(textColorRGB[0], textColorRGB[1], textColorRGB[2]);
+                                        doc.setFontSize(fontSizeEE - 2);
+                                        doc.text(fechaStr, xCelda + paddingEE + 4, yAct);
+                                        doc.setFontSize(fontSizeEE);
+                                        yAct += 3.5;
+                                    }
+                                    yAct += 1.5; // margen entre actividades
+                                });
+                                // Si hay más actividades que las mostradas
+                                if (acts.length > maxActs) {
+                                    doc.setTextColor(107, 114, 128);
+                                    doc.setFontSize(fontSizeEE - 1);
+                                    doc.setFont(undefined, 'italic');
+                                    doc.text(`(+${acts.length - maxActs} más)`, xCelda + paddingEE, yAct);
+                                    doc.setFont(undefined, 'normal');
+                                    doc.setFontSize(fontSizeEE);
+                                }
                             }
                         });
 
                         // Separador inferior de la fila
                         doc.setDrawColor(229, 231, 235);
                         doc.setLineWidth(0.2);
-                        doc.line(MARGIN_LEFT, yPos + alturaFilaEE, MARGIN_LEFT + anchoUtil, yPos + alturaFilaEE);
-                        yPos += alturaFilaEE;
+                        doc.line(MARGIN_LEFT, yPos + alturaFila, MARGIN_LEFT + anchoUtil, yPos + alturaFila);
+                        yPos += alturaFila;
                     });
 
                     // Leyenda de estados
@@ -11942,6 +11994,9 @@
                 if (tipoSel === 'ambas' || tipoSel === 'CC') {
                     if (!primeraPaginaConCuadrante) {
                         doc.addPage();
+                        // Repetir el header (con curso escolar) en la nueva
+                        // página para que el cuadrante CC también lo muestre.
+                        addPDFHeader(doc, 'Cuadrante Global de Actividades', true, cursoEscolarVista);
                     }
                     primeraPaginaConCuadrante = false;
 
@@ -12015,10 +12070,44 @@
                             if (acts.length > maxActsPorCelda) maxActsPorCelda = acts.length;
                         });
                     });
-                    // Altura por fila: 6mm base + 3mm por cada actividad
-                    // adicional (hasta un máximo de 5 por celda).
-                    const actsVisiblesPorCelda = Math.min(maxActsPorCelda, 5);
-                    const alturaFilaCC = 6 + Math.max(0, actsVisiblesPorCelda - 1) * 3.5;
+                    // Altura por fila: dinámica según el contenido.
+                    // Cada actividad ocupa (lineasNombre * 2.7 + 3) mm
+                    // cuando tiene fecha, (lineasNombre * 2.7 + 1.5) si no.
+                    // Para 3+ actividades, el resumen ocupa 4mm (cabecera)
+                    // + 2 líneas × 2.5mm = 9mm.
+                    // Calculamos la altura máxima necesaria por celda en
+                    // toda la tabla y usamos ese valor para todas las
+                    // filas (uniformidad visual).
+                    let alturaMaximaFila = 8;
+                    const anchoTextoCC_calc = colMesWidth - paddingCC * 2;
+                    unidadesMostrar.forEach(unidad => {
+                        meses.forEach((m, idx) => {
+                            const acts = actividadesCCData.filter(a => {
+                                if (!getUnidadesActividadCC(a).includes(unidad)) return false;
+                                if (!a.fecha) return false;
+                                try {
+                                    return new Date(a.fecha + 'T00:00:00').getMonth() === idx;
+                                } catch (e) { return false; }
+                            });
+                            let hCelda = 6; // base
+                            if (acts.length === 0) {
+                                hCelda = 6;
+                            } else if (acts.length <= 2) {
+                                acts.forEach(act => {
+                                    const lineas = doc.splitTextToSize(act.nombre || '', anchoTextoCC_calc);
+                                    hCelda += lineas.length * 2.7 + (act.fecha ? 3 : 1.5);
+                                });
+                            } else {
+                                // 3+ actividades: cabecera + 2 líneas de resumen
+                                hCelda += 4 + 2 * 2.5;
+                            }
+                            if (hCelda > alturaMaximaFila) alturaMaximaFila = hCelda;
+                        });
+                    });
+                    // Limitar a un máximo de 30mm por fila (8 unidades × 30 = 240mm,
+                    // pero el A4 landscape tiene 165mm útiles; con 8 filas de 20mm
+                    // = 160mm, que cabe). Si hay muchas unidades, se reducirá.
+                    const alturaFilaCC = Math.min(alturaMaximaFila, 25);
 
                     unidadesMostrar.forEach((unidad) => {
                         // Fondo de la celda Unidad (color naranja claro)
@@ -12053,45 +12142,60 @@
                             doc.setLineWidth(0.2);
                             doc.line(xCelda + colMesWidth, yPos, xCelda + colMesWidth, yPos + alturaFilaCC);
 
+                            // Ancho de texto útil dentro de la celda de mes
+                            // (descontando el padding).
+                            const anchoTextoCC = colMesWidth - paddingCC * 2;
+
                             // Contenido
                             if (acts.length === 0) {
                                 // Celda vacía: punto gris
                                 doc.setTextColor(203, 213, 225);
                                 doc.text('·', xCelda + colMesWidth / 2, yPos + alturaFilaCC / 2 + 1, { align: 'center' });
                             } else if (acts.length <= 2) {
-                                // 1-2 actividades: mostrar el nombre (truncado)
+                                // 1-2 actividades: mostrar el nombre ajustado
+                                // al ancho de la columna (splitTextToSize).
                                 let yAct = yPos + 4;
                                 acts.forEach(act => {
-                                    const nombreCorto = truncarPDF(act.nombre || '', 16);
+                                    const nombre = act.nombre || '';
                                     const fechaCorta = act.fecha ? formatDate(act.fecha).substring(0, 5) : '';
                                     doc.setTextColor(194, 65, 12); // naranja oscuro
-                                    doc.text(nombreCorto, xCelda + paddingCC, yAct);
+                                    // Dividir el nombre en líneas según el ancho
+                                    const lineas = doc.splitTextToSize(nombre, anchoTextoCC);
+                                    lineas.forEach((linea, i) => {
+                                        doc.text(linea, xCelda + paddingCC, yAct + i * 2.7);
+                                    });
+                                    yAct += lineas.length * 2.7;
                                     if (fechaCorta) {
                                         doc.setTextColor(156, 163, 175);
                                         doc.setFontSize(fontSizeCC - 1);
-                                        doc.text(fechaCorta, xCelda + paddingCC, yAct + 2.5);
+                                        doc.text(fechaCorta, xCelda + paddingCC, yAct);
                                         doc.setFontSize(fontSizeCC);
-                                        yAct += 5.5;
+                                        yAct += 3;
                                     } else {
-                                        yAct += 3.5;
+                                        yAct += 1.5;
                                     }
                                 });
                             } else {
-                                // 3+ actividades: mostrar el número en un círculo naranja
+                                // 3+ actividades: mostrar el número en un
+                                // rectángulo naranja y debajo un resumen con
+                                // los nombres ajustados al ancho.
                                 doc.setFillColor(249, 115, 22);
                                 doc.setTextColor(255, 255, 255);
                                 doc.setFont(undefined, 'bold');
-                                // Rectángulo redondeado simulado
                                 const xCentro = xCelda + colMesWidth / 2;
-                                const yCentro = yPos + alturaFilaCC / 2;
-                                doc.rect(xCentro - 4, yCentro - 3, 8, 6, 'F');
-                                doc.text(String(acts.length), xCentro, yCentro + 1, { align: 'center' });
+                                const yCentro = yPos + 4;
+                                doc.rect(xCentro - 4, yCentro - 1, 8, 6, 'F');
+                                doc.text(String(acts.length), xCentro, yCentro + 3, { align: 'center' });
                                 doc.setFont(undefined, 'normal');
-                                // Tooltip con los nombres (en pie de celda, línea pequeña)
-                                const nombresResumen = truncarPDF(acts.map(a => a.nombre || '').join(', '), 18);
+                                // Resumen con los nombres ajustado al ancho
+                                const nombresResumen = acts.map(a => a.nombre || '').join(', ');
                                 doc.setTextColor(107, 114, 128);
                                 doc.setFontSize(fontSizeCC - 2);
-                                doc.text(nombresResumen, xCelda + paddingCC, yPos + alturaFilaCC - 1.5);
+                                const lineasResumen = doc.splitTextToSize(nombresResumen, anchoTextoCC);
+                                // Mostrar hasta 2 líneas del resumen
+                                lineasResumen.slice(0, 2).forEach((linea, i) => {
+                                    doc.text(linea, xCelda + paddingCC, yCentro + 7 + i * 2.5);
+                                });
                                 doc.setFontSize(fontSizeCC);
                             }
                         });
@@ -12634,11 +12738,17 @@
             }
         }
 
-        function addPDFHeader(doc, title, landscape = false) {
+        // El parámetro `cursoEscolar` es opcional. Si se pasa (cadena
+        // no vacía), se muestra debajo del título del informe, en una
+        // línea con fondo más claro, para indicar a qué curso escolar
+        // pertenece el informe. Si no se pasa o está vacío, el header
+        // se comporta como antes (sin curso escolar).
+        function addPDFHeader(doc, title, landscape = false, cursoEscolar = '') {
             const pageWidth = doc.internal.pageSize.getWidth();
             const pageHeight = doc.internal.pageSize.getHeight();
             const centerX = pageWidth / 2;
-            const headerHeight = 35;
+            // Si hay curso escolar, reservamos 5mm más para esa línea.
+            const headerHeight = cursoEscolar ? 38 : 35;
 
             // Fondo del header
             doc.setFillColor(13, 115, 119);
@@ -12660,10 +12770,22 @@
             const tituloInforme = String(title || 'Informe');
             const lineasTitulo = doc.splitTextToSize(tituloInforme, pageWidth - 20).slice(0, 2);
             if (lineasTitulo.length > 1) {
-                doc.text(lineasTitulo[0], centerX, 26, { align: 'center' });
-                doc.text(lineasTitulo[1], centerX, 33, { align: 'center' });
+                doc.text(lineasTitulo[0], centerX, 25, { align: 'center' });
+                doc.text(lineasTitulo[1], centerX, 31, { align: 'center' });
             } else {
-                doc.text(lineasTitulo[0] || tituloInforme, centerX, 28, { align: 'center' });
+                doc.text(lineasTitulo[0] || tituloInforme, centerX, 27, { align: 'center' });
+            }
+
+            // Curso escolar (línea adicional, opcional): se muestra
+            // debajo del título del informe, en un color más claro para
+            // distinguirlo. Solo se renderiza si el parámetro llega con
+            // contenido (no vacío ni null).
+            if (cursoEscolar && String(cursoEscolar).trim()) {
+                doc.setFontSize(10);
+                doc.setFont(undefined, 'normal');
+                doc.setTextColor(180, 220, 220); // verde-azulado claro
+                const txtCurso = 'Curso escolar: ' + String(cursoEscolar).trim();
+                doc.text(txtCurso, centerX, 35, { align: 'center' });
             }
 
             // Fecha de generación - dentro de los márgenes de la página
