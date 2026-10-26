@@ -2655,6 +2655,59 @@
                         </div>
                     </div>
 
+                    <!-- Departamentos Didácticos - Acordeón (Solo Admin) -->
+                    <div class="card overflow-hidden">
+                        <div class="accordion-header" onclick="toggleAccordion(this)">
+                            <h2 class="font-display text-lg font-bold flex items-center gap-2" style="color: var(--accent);">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+                                </svg>
+                                Departamentos Didácticos
+                                <span id="departamentosContador" class="ml-2 text-sm font-normal px-2 py-0.5 rounded-full" style="background: rgba(13, 115, 119, 0.1); color: var(--accent);">0 departamentos</span>
+                            </h2>
+                            <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </div>
+                        <div class="accordion-content">
+                            <div class="p-6 space-y-4">
+                                <p class="text-sm" style="color: var(--muted);">
+                                    Gestiona la lista de Departamentos Didácticos del centro. Estos departamentos
+                                    se utilizan al crear y editar Actividades Extraescolares (EE) y en los informes
+                                    por departamento. La lista es común a todos los cursos escolares y se
+                                    sincroniza con la nube automáticamente.
+                                </p>
+                                <!-- Formulario de alta/edición -->
+                                <div class="flex gap-2">
+                                    <input type="text" id="newDepartamento" class="form-input flex-1" placeholder="Ej: Biología y Geología" maxlength="80">
+                                    <button onclick="addDepartamento()" class="btn btn-primary flex-shrink-0">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                                        </svg>
+                                        Añadir
+                                    </button>
+                                </div>
+                                <p class="text-xs" style="color: var(--muted);">
+                                    Consejo: si renombras un departamento existente, las actividades que lo
+                                    mencionaban conservarán el nombre anterior (podrás actualizarlas
+                                    individualmente desde su edición). Si lo eliminas, las actividades que lo
+                                    usen seguirán mostrándolo, pero ya no aparecerá en nuevos formularios.
+                                </p>
+                                <!-- Lista de departamentos -->
+                                <div id="departamentosList" class="max-h-96 overflow-y-auto space-y-2"></div>
+                                <!-- Acciones de restauración -->
+                                <div class="flex flex-col sm:flex-row gap-2 pt-3 border-t" style="border-color: var(--border);">
+                                    <button onclick="restaurarDepartamentosDefecto()" class="btn btn-secondary flex-1" title="Restaurar la lista por defecto (manteniendo los añadidos manualmente si no están duplicados)">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                                        </svg>
+                                        Restaurar valores por defecto
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </section>
 
@@ -4992,7 +5045,14 @@
                 unidadesDefecto: {
                     cursos: ['1º ESO', '2º ESO', '3º ESO', '4º ESO'],
                     unidades: ['1º A', '1º B', '2º A', '2º B', '3º A', '3º B', '4º A', '4º B']
-                }
+                },
+                // Departamentos Didácticos configurables (lista común a todos
+                // los cursos escolares). Se inicializa con DEPARTAMENTOS (los
+                // valores por defecto históricos) la primera vez y luego el
+                // admin puede añadir, editar y eliminar desde el acordeón de
+                // Configuración. Se sincroniza con Firebase como parte de
+                // `config`.
+                departamentos: null
             },
             actividades: [],
             // Enlaces de interés / normativa por curso escolar
@@ -5033,6 +5093,232 @@
             'Matemáticas', 'Ciencias Naturales', 'Tecnología', 'Dibujo',
             'Educación Física', 'Música', 'Orientación'
         ];
+
+        /**
+         * Devuelve la lista de Departamentos Didácticos configurados por el
+         * administrador. Si no se han configurado todavía (valor `null` o
+         * ausente en appData.config), se inicializan con la lista por
+         * defecto (DEPARTAMENTOS) y se persisten. Esto mantiene la
+         * compatibilidad con datos antiguos: las actividades existentes
+         * siguen viendo la misma lista hasta que el admin la modifique.
+         * @returns {string[]} Array de nombres de departamentos didácticos
+         */
+        function getDepartamentos() {
+            if (!Array.isArray(appData?.config?.departamentos)) {
+                if (appData && appData.config) {
+                    appData.config.departamentos = [...DEPARTAMENTOS];
+                }
+            }
+            return Array.isArray(appData?.config?.departamentos) ? appData.config.departamentos : [...DEPARTAMENTOS];
+        }
+
+        // ==================== DEPARTAMENTOS DIDÁCTICOS (CRUD) ====================
+
+        /**
+         * Renderiza la lista de Departamentos Didácticos en el acordeón de
+         * configuración y actualiza el contador del encabezado. Cada item
+         * muestra su nombre y dos botones: editar (lápiz) y eliminar
+         * (papelera). Los nombres se ordenan alfabéticamente para facilitar
+         * su localización cuando la lista es larga.
+         */
+        function renderDepartamentosDidacticos() {
+            const cont = document.getElementById('departamentosList');
+            const contadorEl = document.getElementById('departamentosContador');
+            const departamentos = getDepartamentos();
+
+            if (contadorEl) {
+                const n = departamentos.length;
+                contadorEl.textContent = `${n} departamento${n !== 1 ? 's' : ''}`;
+            }
+
+            if (!cont) return;
+
+            if (departamentos.length === 0) {
+                cont.innerHTML = '<p class="text-sm text-center py-4" style="color: var(--muted);">No hay departamentos didácticos. Añade el primero con el formulario superior o restaura los valores por defecto.</p>';
+                return;
+            }
+
+            cont.innerHTML = departamentos.map((dept, idx) => `
+                <div class="flex items-center justify-between p-2.5 rounded-lg gap-3" style="background: var(--bg);">
+                    <div class="flex items-center gap-2 min-w-0 flex-1">
+                        <span class="text-xs font-mono text-gray-400 w-6 flex-shrink-0">${idx + 1}.</span>
+                        <span class="text-sm truncate" title="${escapeAttr(dept)}">${escapeHTML(dept)}</span>
+                    </div>
+                    <div class="flex gap-1 flex-shrink-0">
+                        <button onclick="editarDepartamentoDidactico(${idx})" class="p-1.5 rounded-lg hover:bg-opacity-20 transition-colors" style="background: rgba(13, 115, 119, 0.1); color: var(--accent);" title="Editar departamento" aria-label="Editar departamento ${escapeAttr(dept)}">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                        </button>
+                        <button onclick="eliminarDepartamentoDidactico(${idx})" class="p-1.5 rounded-lg hover:bg-opacity-20 transition-colors" style="background: rgba(220, 38, 38, 0.1); color: var(--danger);" title="Eliminar departamento" aria-label="Eliminar departamento ${escapeAttr(dept)}">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        /**
+         * Añade un nuevo Departamento Didáctico. El nombre se normaliza
+         * (trim + colapso de espacios) y se compara sin distinguir mayúsculas
+         * para evitar duplicados. No se hace distinción entre mayúsculas y
+         * minúsculas a la hora de detectar duplicados, pero se conserva el
+         * texto exacto introducido por el usuario.
+         */
+        function addDepartamento() {
+            const input = document.getElementById('newDepartamento');
+            if (!input) return;
+            const nombreRaw = input.value.trim().replace(/\s+/g, ' ');
+            if (!nombreRaw) {
+                showToast('Introduce el nombre del departamento', 'warning');
+                input.focus();
+                return;
+            }
+            if (nombreRaw.length > 80) {
+                showToast('El nombre no puede superar los 80 caracteres', 'warning');
+                return;
+            }
+            const departamentos = getDepartamentos();
+            if (departamentos.some(d => d.toLowerCase() === nombreRaw.toLowerCase())) {
+                showToast(`Ya existe un departamento llamado "${nombreRaw}"`, 'warning');
+                return;
+            }
+            departamentos.push(nombreRaw);
+            // departamentos es la MISMA referencia que appData.config.departamentos
+            // (getDepartamentos la inicializó si hacía falta), así que basta con
+            // persistir.
+            saveToLocalStorage();
+            input.value = '';
+            renderDepartamentosDidacticos();
+            // Refrescar selects/checkboxes que dependen de la lista
+            renderInformeSelects();
+            updateDeptFields();
+            showToast(`Departamento "${nombreRaw}" añadido`, 'success');
+        }
+
+        /**
+         * Edita el nombre de un Departamento Didáctico existente. Conserva
+         * la posición en la lista y valida el nuevo nombre contra duplicados
+         * (excluyendo el propio elemento que se edita).
+         * @param {number} idx - Índice del departamento en la lista
+         */
+        function editarDepartamentoDidactico(idx) {
+            const departamentos = getDepartamentos();
+            if (idx < 0 || idx >= departamentos.length) {
+                showToast('Departamento no encontrado', 'error');
+                return;
+            }
+            const actual = departamentos[idx];
+            const nuevoRaw = prompt('Editar nombre del departamento didáctico:', actual);
+            if (nuevoRaw === null) return; // Cancelar
+            const nuevo = nuevoRaw.trim().replace(/\s+/g, ' ');
+            if (!nuevo) {
+                showToast('El nombre no puede estar vacío', 'warning');
+                return;
+            }
+            if (nuevo.length > 80) {
+                showToast('El nombre no puede superar los 80 caracteres', 'warning');
+                return;
+            }
+            if (nuevo === actual) return; // Sin cambios
+            // Comprobar duplicado excluyendo el propio índice
+            if (departamentos.some((d, i) => i !== idx && d.toLowerCase() === nuevo.toLowerCase())) {
+                showToast(`Ya existe un departamento llamado "${nuevo}"`, 'warning');
+                return;
+            }
+            departamentos[idx] = nuevo;
+            saveToLocalStorage();
+            renderDepartamentosDidacticos();
+            // Refrescar selects/checkboxes que dependen de la lista
+            renderInformeSelects();
+            updateDeptFields();
+            showToast(`Departamento actualizado a "${nuevo}"`, 'success');
+        }
+
+        /**
+         * Elimina un Departamento Didáctico. Antes de borrar, comprueba si
+         * alguna actividad EE del curso activo lo referencia y, en ese caso,
+         * pide confirmación adicional advirtiendo de que las actividades
+         * seguirán mostrándolo en sus detalles (pero ya no aparecerá en
+         * nuevos formularios). No se modifican las actividades existentes.
+         * @param {number} idx - Índice del departamento en la lista
+         */
+        function eliminarDepartamentoDidactico(idx) {
+            const departamentos = getDepartamentos();
+            if (idx < 0 || idx >= departamentos.length) {
+                showToast('Departamento no encontrado', 'error');
+                return;
+            }
+            const nombre = departamentos[idx];
+
+            // Contar actividades (EE) que lo usan en TODOS los cursos, no
+            // solo en el activo: si un curso histórico lo referencia, hay
+            // que avisar al usuario para que sea consciente del impacto.
+            const usadasEE = (appData.actividades || []).filter(
+                a => Array.isArray(a.departamentos) && a.departamentos.includes(nombre)
+            ).length;
+            const usadasCC = (typeof actividadesCC !== 'undefined' && Array.isArray(actividadesCC))
+                ? actividadesCC.filter(a => Array.isArray(a.departamentos) && a.departamentos.includes(nombre)).length
+                : 0;
+            const totalUsadas = usadasEE + usadasCC;
+
+            let mensaje = `¿Eliminar el departamento "${nombre}"?`;
+            if (totalUsadas > 0) {
+                const partes = [];
+                if (usadasEE > 0) partes.push(`${usadasEE} EE`);
+                if (usadasCC > 0) partes.push(`${usadasCC} CC`);
+                mensaje += `\n\n⚠️ Aparece en ${partes.join(' y ')} actividad${totalUsadas !== 1 ? 'es' : ''}. `
+                    + 'Las actividades existentes seguirán mostrándolo en sus detalles, '
+                    + 'pero ya no aparecerá en nuevos formularios ni en los informes.';
+            }
+            if (!confirm(mensaje)) return;
+
+            departamentos.splice(idx, 1);
+            saveToLocalStorage();
+            renderDepartamentosDidacticos();
+            // Refrescar selects/checkboxes que dependen de la lista
+            renderInformeSelects();
+            updateDeptFields();
+            showToast(`Departamento "${nombre}" eliminado`, 'success');
+        }
+
+        /**
+         * Restaura la lista de Departamentos Didácticos a los valores por
+         * defecto (DEPARTAMENTOS). Si ya existen otros añadidos manualmente
+         * que no están en la lista por defecto, se conservan (al final de
+         * la lista) para no perder trabajo del administrador. Los
+         * departamentos por defecto que ya existían se mantienen sin
+         * duplicar. El resultado queda ordenado: primero los por defecto
+         * (en su orden original), luego los personalizados (alfabético).
+         */
+        function restaurarDepartamentosDefecto() {
+            const actuales = getDepartamentos();
+            const porDefecto = [...DEPARTAMENTOS];
+            // Detectar añadidos manuales (no incluidos en la lista por defecto)
+            const añadidos = actuales.filter(d => !porDefecto.includes(d));
+            // Construir nueva lista: por defecto + añadidos (sin duplicar)
+            const nueva = [...porDefecto];
+            añadidos.forEach(d => { if (!nueva.includes(d)) nueva.push(d); });
+
+            const mismosElementos =
+                actuales.length === nueva.length &&
+                actuales.every((d, i) => d === nueva[i]);
+            if (mismosElementos) {
+                showToast('La lista ya contiene los valores por defecto y los añadidos manuales', 'info');
+                return;
+            }
+            if (!confirm('¿Restaurar la lista de departamentos a los valores por defecto?\n\nSe conservarán los añadidos manualmente que no estén duplicados.')) {
+                return;
+            }
+            appData.config.departamentos = nueva;
+            saveToLocalStorage();
+            renderDepartamentosDidacticos();
+            renderInformeSelects();
+            updateDeptFields();
+            showToast('Departamentos restaurados a los valores por defecto', 'success');
+        }
 
         const CURSOS = ['1º ESO', '2º ESO', '3º ESO', '4º ESO'];
         const TRIMESTRES = ['Primer Trimestre', 'Segundo Trimestre', 'Tercer Trimestre'];
@@ -6828,6 +7114,12 @@
             renderProfesorado();
             renderEditSelect();
             renderInformeSelects();
+            // Asegurar que la lista de departamentos didácticos esté
+            // inicializada (getDepartamentos la rellena con los valores
+            // por defecto la primera vez) y pintar el acordeón de
+            // configuración con el contador y la lista actualizados.
+            getDepartamentos();
+            renderDepartamentosDidacticos();
             updateTrimestreOptions();
             updateDeptFields();
             // Actualizar unidades configurables
@@ -7747,7 +8039,7 @@
             // Renderizar checkboxes de departamentos en lugar de select
             const deptContainer = document.getElementById('departamentosContainer');
             if (deptContainer) {
-                deptContainer.innerHTML = DEPARTAMENTOS.map(dept => `
+                deptContainer.innerHTML = getDepartamentos().map(dept => `
                     <label style="display: flex; align-items: center; padding: 4px 0; cursor: pointer; font-size: 0.875rem;">
                         <input type="checkbox" name="departamento" value="${escapeHTML(dept)}"
  style="margin-right: 8px; accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer;">
@@ -8015,7 +8307,7 @@
                 document.getElementById('cronoEditOrganizador').value = act.organizador;
                 document.getElementById('cronoEditOrganizadorField').classList.remove('hidden');
                 document.getElementById('cronoEditDeptFields').innerHTML = '';
-            } else if (act.departamentos && act.departamentos.length === DEPARTAMENTOS.length) {
+            } else if (act.departamentos && act.departamentos.length === getDepartamentos().length) {
                 document.getElementById('cronoEditDeptCount').value = 'todos';
                 document.getElementById('cronoEditOrganizadorField').classList.add('hidden');
                 document.getElementById('cronoEditDeptFields').innerHTML = '';
@@ -8092,11 +8384,11 @@
                 return;
             }
 
-            container.innerHTML = DEPARTAMENTOS.slice(0, parseInt(count)).map((dept, i) => `
+            container.innerHTML = getDepartamentos().slice(0, parseInt(count)).map((dept, i) => `
                 <div>
                     <label class="block text-sm font-medium mb-1" style="color: var(--fg); font-weight: 600;">Departamento ${i + 1}</label>
                     <select id="cronoEditDept${i}" class="form-input form-select">
-                        ${DEPARTAMENTOS.map(d => `<option value="${d}" ${selectedDepts[i] === d ? 'selected' : ''}>${d}</option>`).join('')}
+                        ${getDepartamentos().map(d => `<option value="${d}" ${selectedDepts[i] === d ? 'selected' : ''}>${d}</option>`).join('')}
                     </select>
                 </div>
             `).join('');
@@ -8154,7 +8446,7 @@
                 act.departamentos = [];
                 act.organizador = document.getElementById('cronoEditOrganizador').value.trim();
             } else if (deptCount === 'todos') {
-                act.departamentos = [...DEPARTAMENTOS];
+                act.departamentos = [...getDepartamentos()];
                 act.organizador = '';
             } else {
                 act.organizador = '';
@@ -8863,7 +9155,7 @@
  const otherSelectedValues = selectedValues.filter((_, idx) => idx !== i);
 
                     // Filtrar departamentos: mostrar todos EXCEPTO los ya seleccionados en otros campos
-                    const availableDepts = DEPARTAMENTOS.filter(d => !otherSelectedValues.includes(d));
+                    const availableDepts = getDepartamentos().filter(d => !otherSelectedValues.includes(d));
 
                     // Valor actual para este campo (si existe)
                     const currentValue = selectedValues[i] || '';
@@ -8966,7 +9258,7 @@
                     return;
                 }
             } else if (deptCount === 'todos') {
-                departamentos = [...DEPARTAMENTOS];
+                departamentos = [...getDepartamentos()];
             } else {
                 const selects = document.querySelectorAll('#deptFields .dept-select');
                 selects.forEach(s => {
@@ -9566,6 +9858,10 @@
                     if (!Array.isArray(nuevoAppData.config.cursosEscolares)) nuevoAppData.config.cursosEscolares = [];
                     if (!nuevoAppData.config.unidadesPorCurso) nuevoAppData.config.unidadesPorCurso = {};
                     if (!nuevoAppData.config.unidadesDefecto) nuevoAppData.config.unidadesDefecto = { cursos:['1º ESO','2º ESO','3º ESO','4º ESO'], unidades:['1º A','1º B','2º A','2º B','3º A','3º B','4º A','4º B'] };
+                    // Departamentos Didácticos: si el backup no los trae,
+                    // restaurar los valores por defecto para no romper los
+                    // formularios que dependen de la lista.
+                    if (!Array.isArray(nuevoAppData.config.departamentos)) nuevoAppData.config.departamentos = [...DEPARTAMENTOS];
                     if (!Array.isArray(nuevoAppData.actividades)) nuevoAppData.actividades = [];
                     if (!Array.isArray(nuevoAppData.enlacesNormativa)) nuevoAppData.enlacesNormativa = [];
                     appData = nuevoAppData;
@@ -9831,6 +10127,15 @@
                                 cursos: ['1º ESO', '2º ESO', '3º ESO', '4º ESO'],
                                 unidades: ['1º A', '1º B', '2º A', '2º B', '3º A', '3º B', '4º A', '4º B']
                             };
+                        }
+
+                        // CRÍTICO: Asegurar que la lista de Departamentos
+                        // Didácticos siempre exista (configurable desde el
+                        // acordeón de Configuración). Si no estaba en la
+                        // nube (instalaciones antiguas), se inicializa con
+                        // los valores por defecto (DEPARTAMENTOS).
+                        if (!Array.isArray(appData.config.departamentos)) {
+                            appData.config.departamentos = [...DEPARTAMENTOS];
                         }
 
                         // Ejecutar migración de datos antiguos (ej: "1 ESO" -> "1º ESO")
@@ -11459,7 +11764,7 @@
                 const doc = new jsPDF();
 
                 // Construir título del informe
-                let tituloDeptos = departamentosSeleccionados.length === DEPARTAMENTOS.length
+                let tituloDeptos = departamentosSeleccionados.length === getDepartamentos().length
                     ? 'Todos los Departamentos'
                     : departamentosSeleccionados.join(', ');
 
