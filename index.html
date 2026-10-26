@@ -11670,24 +11670,30 @@
         }
 
         /**
-         * Genera el cuadrante global en PDF, ajustando el contenido a UNA
-         * sola página apaisada (landscape A4). Si el número de actividades
-         * es muy elevado, se reduce automáticamente el tamaño de fuente de
-         * las tablas (con un mínimo de 4pt) hasta que todo cabe en una
-         * sola página, en lugar de saltar a una segunda.
+         * Genera el cuadrante global en PDF con el mismo formato tabla
+         * que se muestra en pantalla:
+         * - Cuadrante EE: tabla con filas = cursos (1º ESO, 2º ESO,
+         *   3º ESO, 4º ESO) y columnas = trimestres (1º, 2º, 3º).
+         *   Cada celda contiene las actividades de ese curso+trimestre
+         *   con su estado (✓ Realizada, ○ Propuesta, ✗ No realizada)
+         *   y su fecha.
+         * - Cuadrante CC: tabla con filas = unidades y columnas = meses
+         *   (Ene, Feb, ..., Dic). Cada celda contiene el número de
+         *   actividades de esa unidad+mes (o los nombres si son ≤2).
          *
-         * La estrategia es la siguiente:
-         * 1. Calcula el número total de filas (EE + CC) que se van a
-         *    volcar al PDF.
-         * 2. Estima un fontSize inicial basado en el número de filas.
-         * 3. Renderiza el PDF (header + sección EE + sección CC). La
-         *    librería autoTable, por defecto, añade páginas nuevas
-         *    cuando el contenido no cabe en la página actual.
-         * 4. Tras renderizar, comprueba `doc.internal.pages.length`:
-         *    si > 1, significa que autoTable añadió páginas. En ese
-         *    caso, se reduce el fontSize y se reintenta desde cero.
-         * 5. Como máximo, hace 6 intentos (de fontSizeInicial a
-         *    fontSizeInicial - 5), siempre con fontSize >= 4.
+         * Cada cuadrante ocupa una página A4 landscape completa, con
+         * su título, su tabla y su leyenda. Si el tipo seleccionado es
+         * 'ambas', el PDF tiene 2 páginas (una para EE y otra para CC).
+         * Si es 'EE' o 'CC', una sola página con el cuadrante elegido.
+         *
+         * La tabla se ajusta dinámicamente para ocupar TODO el ancho
+         * útil del A4 landscape (269mm tras márgenes de 14mm a cada
+         * lado). El fontSize se calcula según el número de columnas:
+         *   - EE (4 columnas): fontSize 9pt (legible)
+         *   - CC (13 columnas): fontSize 7pt (más compacto)
+         * Si una celda contiene muchas actividades (más de las que
+         * caben en una línea), el contenido se trunca con "…" y se
+         * muestra el total en formato "(N actividades)".
          */
         function generateCuadranteGlobalPDF() {
             try {
@@ -11696,13 +11702,14 @@
                     return;
                 }
 
-                // Tipo seleccionado por el usuario (CC, EE o ambas) —
-                // afecta al nombre del archivo y a qué secciones se
-                // incluyen en el PDF.
+                // Tipo seleccionado por el usuario (CC, EE o ambas).
                 const tipoSelEl = (typeof document.getElementById('cuadranteTipoActividad') !== 'undefined'
                     && document.getElementById('cuadranteTipoActividad'))
                     ? document.getElementById('cuadranteTipoActividad') : null;
                 const tipoSel = tipoSelEl ? (tipoSelEl.value || 'ambas') : 'ambas';
+
+                const tipoStr = sanitizeFilename(tipoSel === 'EE' ? 'EE' : (tipoSel === 'CC' ? 'CC' : 'CC_y_EE'), 10);
+                const nombreArchivo = `Cuadrante_Global_${tipoStr}_${formatDateTimeFile()}.pdf`;
 
                 // Obtener datos
                 const actividadesEE = (tipoSel === 'ambas' || tipoSel === 'EE')
@@ -11713,9 +11720,6 @@
                         ? getActividadesCCVisibles()
                         : (Array.isArray(actividadesCC) ? actividadesCC : []))
                     : [];
-
-                const tipoStr = sanitizeFilename(tipoSel === 'EE' ? 'EE' : (tipoSel === 'CC' ? 'CC' : 'CC_y_EE'), 10);
-                const nombreArchivo = `Cuadrante_Global_${tipoStr}_${formatDateTimeFile()}.pdf`;
 
                 // Si no hay datos, generar un PDF con un mensaje.
                 if (actividadesEE.length === 0 && actividadesCCData.length === 0) {
@@ -11730,184 +11734,388 @@
                     return;
                 }
 
-                // Preparar los datos tabulares una sola vez (no dependen
-                // del fontSize, así que reutilizarlos en cada intento).
-                const tableDataEE = actividadesEE.map(act => [
-                    (getCursosActividad(act).join(', ') || '-'),
-                    act.trimestre || '-',
-                    truncarPDF(act.nombre || 'Sin nombre', 35),
-                    act.fecha ? formatDate(act.fecha) : '-'
-                ]);
-                const tableDataCC = actividadesCCData.map(act => [
-                    (getUnidadesActividadCC(act).join(', ') || '-'),
-                    truncarPDF(act.nombre || 'Sin nombre', 40),
-                    act.fecha ? formatDate(act.fecha) : '-'
-                ]);
-
-                // Estimación inicial del fontSize basada en el número
-                // total de filas. En A4 landscape (297x210mm), con
-                // header de 35mm y pie de 10mm, quedan ~165mm útiles.
-                // Valores conservadores: cada fila ocupa ~6-8mm a fs 7,
-                // ~4-5mm a fs 5, ~3mm a fs 4, ~2.5mm a fs 3.
-                const totalFilas = tableDataEE.length + tableDataCC.length;
-                let fontSizeInicial;
-                if (totalFilas <= 12) fontSizeInicial = 8;
-                else if (totalFilas <= 20) fontSizeInicial = 7;
-                else if (totalFilas <= 30) fontSizeInicial = 6;
-                else if (totalFilas <= 45) fontSizeInicial = 5;
-                else if (totalFilas <= 60) fontSizeInicial = 4;
-                else fontSizeInicial = 3;
-
                 const { jsPDF } = window.jspdf;
+                const doc = new jsPDF('landscape');
+                const pageWidth = doc.internal.pageSize.getWidth();   // ~297mm
+                const pageHeight = doc.internal.pageSize.getHeight(); // ~210mm
+                addPDFHeader(doc, 'Cuadrante Global de Actividades', true);
 
-                // Intentos de ajuste: empezamos con fontSizeInicial y
-                // vamos reduciendo (en pasos de 1pt) hasta que todo
-                // quepa en una sola página. Mínimo 3pt (legible en A4
-                // landscape impreso a escala 1:1, aunque algo pequeño).
-                let fontSizeActual = fontSizeInicial;
-                let docFinal = null;
-                let intentos = 0;
-                const MIN_FONT = 3;
-                let avisoCompacMax = false;
+                // === Constantes de paginación ===
+                // El header ocupa 35mm. Tras él, dejamos 5mm y empezamos
+                // a pintar el título del cuadrante. Margen inferior 10mm.
+                const MARGIN_LEFT = 14;
+                const MARGIN_RIGHT = 14;
+                const MARGIN_TOP = 38;       // Y inicial tras el header
+                const MARGIN_BOTTOM = 10;
+                const anchoUtil = pageWidth - MARGIN_LEFT - MARGIN_RIGHT; // ~269mm
 
-                while (fontSizeActual >= MIN_FONT && intentos < 8) {
-                    intentos++;
-                    const doc = new jsPDF('landscape');
-                    addPDFHeader(doc, 'Cuadrante Global de Actividades', true);
+                let primeraPaginaConCuadrante = true;
 
-                    // Padding de celda pequeño (0.2pt-0.5pt) para
-                    // compactar al máximo en una sola página A4. Con
-                    // fontSize 3, padding 0.5pt; con fontSize 8, padding
-                    // 1.2pt. La altura de cada fila a fs 3 + padding 0.5
-                    // es ~2.7mm, lo que permite ~60 filas por página.
-                    const paddingCell = Math.max(0.2, fontSizeActual * 0.15);
-                    // yPos inicial: 38mm en lugar de 45 para ganar 7mm
-                    // útiles. El header ocupa 35mm; 38 deja 3mm de aire
-                    // sobre la primera tabla.
-                    let yPos = 38;
+                // =========================================================
+                // CUADRANTE EE (formato tabla cruzada: cursos × trimestres)
+                // =========================================================
+                if (tipoSel === 'ambas' || tipoSel === 'EE') {
+                    if (!primeraPaginaConCuadrante) {
+                        doc.addPage();
+                    }
+                    primeraPaginaConCuadrante = false;
 
-                    // Sección EE (Verde)
-                    if (tableDataEE.length > 0) {
-                        doc.setFontSize(Math.max(fontSizeActual + 1, 6));
+                    // Título del cuadrante EE
+                    doc.setFontSize(13);
+                    doc.setFont(undefined, 'bold');
+                    doc.setTextColor(59, 130, 246); // Azul EE
+                    doc.text('Cuadrante de Actividades Extraescolares (EE)', MARGIN_LEFT, MARGIN_TOP);
+                    doc.setFontSize(9);
+                    doc.setFont(undefined, 'normal');
+                    doc.setTextColor(107, 114, 128);
+                    doc.text('Organizadas por curso y trimestre · ' + actividadesEE.length + ' actividad(es)',
+                        MARGIN_LEFT, MARGIN_TOP + 5);
+                    let yPos = MARGIN_TOP + 12;
+
+                    // Cursos y trimestres disponibles
+                    const cursosDisponibles = (typeof CURSOS !== 'undefined') ? CURSOS : ['1º ESO', '2º ESO', '3º ESO', '4º ESO'];
+                    const trimestresDisponibles = (typeof TRIMESTRES !== 'undefined')
+                        ? TRIMESTRES : ['Primer Trimestre', 'Segundo Trimestre', 'Tercer Trimestre'];
+
+                    // Columnas: Curso (35mm) + 3 × Trimestre (resto).
+                    const colCursoWidth = 35;
+                    const colTrimWidth = (anchoUtil - colCursoWidth) / 3;
+                    const fontSizeEE = 8;
+                    const paddingEE = 1.2;
+
+                    // Cabecera de la tabla
+                    doc.setFillColor(239, 246, 255); // #eff6ff
+                    doc.setTextColor(30, 64, 175);    // #1e40af
+                    doc.setFontSize(fontSizeEE + 1);
+                    doc.setFont(undefined, 'bold');
+                    // Fondo cabecera
+                    doc.rect(MARGIN_LEFT, yPos, anchoUtil, 7, 'F');
+                    // Texto cabecera
+                    doc.text('Curso', MARGIN_LEFT + paddingEE, yPos + 5);
+                    trimestresDisponibles.forEach((trim, idx) => {
+                        // Etiqueta corta del trimestre: "1º Trim."
+                        const etiqueta = trim.replace('Trimestre', 'Trim.');
+                        const xCentro = MARGIN_LEFT + colCursoWidth + idx * colTrimWidth + colTrimWidth / 2;
+                        doc.text(etiqueta, xCentro, yPos + 5, { align: 'center' });
+                    });
+                    // Separador entre cabecera y cuerpo
+                    doc.setDrawColor(59, 130, 246);
+                    doc.setLineWidth(0.3);
+                    doc.line(MARGIN_LEFT, yPos + 7, MARGIN_LEFT + anchoUtil, yPos + 7);
+                    yPos += 7;
+
+                    // Filas (una por curso)
+                    doc.setFontSize(fontSizeEE);
+                    doc.setFont(undefined, 'normal');
+
+                    // Colores de fondo por curso (igual que en pantalla)
+                    const cursoColors = {
+                        '1º ESO': [79, 134, 165],
+                        '2º ESO': [142, 166, 81],
+                        '3º ESO': [202, 122, 48],
+                        '4º ESO': [162, 76, 101]
+                    };
+                    const colorCursoDefault = [107, 114, 128];
+
+                    // Altura de cada fila: debe ser suficiente para
+                    // mostrar hasta 5 actividades con nombre (8mm cada
+                    // una con nombre + fecha). Total: 5 × 8 = 40mm. Como
+                    // la tabla EE solo tiene 4 filas (4 cursos), 40mm × 4
+                    // = 160mm, que cabe en el A4 landscape (210mm - 35mm
+                    // header - 10mm margen inferior = 165mm útiles).
+                    const alturaFilaEE = 40;
+
+                    cursosDisponibles.forEach((curso) => {
+                        const filaInicioY = yPos;
+                        // Fondo de la celda Curso
+                        const cColor = cursoColors[curso] || colorCursoDefault;
+                        doc.setFillColor(cColor[0], cColor[1], cColor[2]);
+                        doc.rect(MARGIN_LEFT, yPos, colCursoWidth, alturaFilaEE, 'F');
+                        // Texto del curso (en blanco, centrado verticalmente)
+                        doc.setTextColor(255, 255, 255);
                         doc.setFont(undefined, 'bold');
-                        doc.setTextColor(5, 150, 105);
-                        doc.text(`ACTIVIDADES EXTRAESCOLARES (EE): ${actividadesEE.length}`, 14, yPos);
-                        yPos += 6;
+                        doc.text(curso, MARGIN_LEFT + colCursoWidth / 2, yPos + alturaFilaEE / 2 + 1, { align: 'center' });
 
-                        doc.autoTable({
-                            startY: yPos,
-                            head: [['Curso', 'Trim.', 'Actividad', 'Fecha']],
-                            body: tableDataEE,
-                            theme: 'striped',
-                            headStyles: { fillColor: [5, 150, 105], fontSize: fontSizeActual, cellPadding: paddingCell },
-                            margin: { left: 14, right: 14 },
-                            styles: { fontSize: fontSizeActual, cellPadding: paddingCell, overflow: 'linebreak' },
-                            columnStyles: {
-                                0: { cellWidth: 20 },
-                                1: { cellWidth: 32 },
-                                2: { cellWidth: 165 },
-                                3: { cellWidth: 28 }
+                        // Celdas por trimestre
+                        doc.setFont(undefined, 'normal');
+                        trimestresDisponibles.forEach((trim, idx) => {
+                            const xCelda = MARGIN_LEFT + colCursoWidth + idx * colTrimWidth;
+                            // Fondo de la celda
+                            doc.setFillColor(248, 247, 244); // --bg
+                            doc.rect(xCelda, yPos, colTrimWidth, alturaFilaEE, 'F');
+
+                            // Filtrar actividades de este curso+trimestre
+                            const acts = actividadesEE.filter(a =>
+                                getCursosActividad(a).includes(curso) && a.trimestre === trim
+                            );
+
+                            // Borde derecho de la celda
+                            doc.setDrawColor(229, 231, 235);
+                            doc.setLineWidth(0.2);
+                            doc.line(xCelda + colTrimWidth, yPos, xCelda + colTrimWidth, yPos + alturaFilaEE);
+
+                            // Contenido: dibujar cada actividad como una línea
+                            // con su indicador (✓/○/✗) y su fecha. Se muestran
+                            // hasta maxActs actividades; si hay más, se
+                            // muestra "(+N más)" en el último slot disponible
+                            // DENTRO de la celda.
+                            let yAct = yPos + 5;
+                            const maxActs = 4; // 4 actividades + 1 línea "(+N más)"
+                            const actsAMostrar = acts.slice(0, maxActs);
+                            actsAMostrar.forEach(act => {
+                                let esRealizada = false, esNoRealizada = false;
+                                try {
+                                    esRealizada = typeof esActividadRealizada === 'function' ? esActividadRealizada(act) : false;
+                                    esNoRealizada = act.noRealizada === true;
+                                } catch (e) {}
+                                let indicador, textColorRGB;
+                                if (esNoRealizada) { indicador = 'X'; textColorRGB = [220, 38, 38]; }
+                                else if (esRealizada) { indicador = 'V'; textColorRGB = [5, 150, 105]; }
+                                else { indicador = 'O'; textColorRGB = [217, 119, 6]; }
+
+                                // Truncar el nombre a ~40 caracteres para que quepa
+                                const nombre = truncarPDF(act.nombre || 'Sin nombre', 40);
+                                const fechaStr = act.fecha ? formatDate(act.fecha) : '';
+
+                                // Indicador (en color)
+                                doc.setTextColor(textColorRGB[0], textColorRGB[1], textColorRGB[2]);
+                                doc.setFont(undefined, 'bold');
+                                doc.text(indicador, xCelda + paddingEE, yAct);
+                                // Nombre (en color fg por defecto)
+                                doc.setTextColor(45, 45, 45);
+                                doc.setFont(undefined, 'normal');
+                                doc.text(nombre, xCelda + paddingEE + 4, yAct);
+                                // Fecha (en color del indicador, en la siguiente línea)
+                                if (fechaStr) {
+                                    doc.setTextColor(textColorRGB[0], textColorRGB[1], textColorRGB[2]);
+                                    doc.setFontSize(fontSizeEE - 2);
+                                    doc.text(fechaStr, xCelda + paddingEE + 4, yAct + 3);
+                                    doc.setFontSize(fontSizeEE);
+                                    yAct += 8;
+                                } else {
+                                    yAct += 5;
+                                }
+                            });
+
+                            // Si hay más actividades que las mostradas, indicar "(+N más)"
+                            // en el quinto slot, DENTRO del fondo de la celda.
+                            if (acts.length > maxActs) {
+                                doc.setTextColor(107, 114, 128);
+                                doc.setFontSize(fontSizeEE - 1);
+                                doc.setFont(undefined, 'italic');
+                                doc.text(`(+${acts.length - maxActs} más)`, xCelda + paddingEE, yAct + 2);
+                                doc.setFont(undefined, 'normal');
+                                doc.setFontSize(fontSizeEE);
+                            } else if (acts.length === 0) {
+                                doc.setTextColor(156, 163, 175);
+                                doc.setFont(undefined, 'italic');
+                                doc.text('Sin actividades', xCelda + paddingEE, yPos + alturaFilaEE / 2 + 1);
+                                doc.setFont(undefined, 'normal');
                             }
                         });
 
-                        yPos = doc.lastAutoTable.finalY + 6;
+                        // Separador inferior de la fila
+                        doc.setDrawColor(229, 231, 235);
+                        doc.setLineWidth(0.2);
+                        doc.line(MARGIN_LEFT, yPos + alturaFilaEE, MARGIN_LEFT + anchoUtil, yPos + alturaFilaEE);
+                        yPos += alturaFilaEE;
+                    });
+
+                    // Leyenda de estados
+                    yPos += 5;
+                    doc.setFontSize(8);
+                    doc.setTextColor(107, 114, 128);
+                    doc.text('Leyenda:', MARGIN_LEFT, yPos);
+                    doc.setTextColor(217, 119, 6);
+                    doc.setFont(undefined, 'bold');
+                    doc.text('O Propuesta', MARGIN_LEFT + 18, yPos);
+                    doc.setTextColor(5, 150, 105);
+                    doc.text('V Realizada', MARGIN_LEFT + 55, yPos);
+                    doc.setTextColor(220, 38, 38);
+                    doc.text('X No realizada', MARGIN_LEFT + 92, yPos);
+                    doc.setFont(undefined, 'normal');
+                }
+
+                // =========================================================
+                // CUADRANTE CC (formato tabla cruzada: unidades × meses)
+                // =========================================================
+                if (tipoSel === 'ambas' || tipoSel === 'CC') {
+                    if (!primeraPaginaConCuadrante) {
+                        doc.addPage();
                     }
+                    primeraPaginaConCuadrante = false;
 
-                    // Sección CC (Naranja)
-                    if (tableDataCC.length > 0) {
-                        doc.setFontSize(Math.max(fontSizeActual + 1, 6));
+                    // Título del cuadrante CC
+                    doc.setFontSize(13);
+                    doc.setFont(undefined, 'bold');
+                    doc.setTextColor(249, 115, 22); // Naranja CC
+                    doc.text('Cuadrante de Actividades Complementarias (CC)', MARGIN_LEFT, MARGIN_TOP);
+                    doc.setFontSize(9);
+                    doc.setFont(undefined, 'normal');
+                    doc.setTextColor(107, 114, 128);
+                    doc.text('Organizadas por unidad y mes · ' + actividadesCCData.length + ' actividad(es)',
+                        MARGIN_LEFT, MARGIN_TOP + 5);
+                    let yPos = MARGIN_TOP + 12;
+
+                    // Unidades únicas (multi-unidad: cada actividad puede estar
+                    // en varias unidades)
+                    const unidadesSet = new Set();
+                    actividadesCCData.forEach(a => {
+                        getUnidadesActividadCC(a).forEach(u => unidadesSet.add(u));
+                    });
+                    const unidades = [...unidadesSet].filter(Boolean).sort();
+                    const unidadesMostrar = unidades.length > 0
+                        ? unidades
+                        : ['1º A', '1º B', '2º A', '2º B', '3º A', '3º B', '4º A', '4º B'];
+
+                    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+                                   'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+                    // Columnas: Unidad (25mm) + 12 × Mes (resto).
+                    const colUnidadWidth = 25;
+                    const colMesWidth = (anchoUtil - colUnidadWidth) / 12; // ~20.3mm
+                    const fontSizeCC = 7;
+                    const paddingCC = 0.8;
+
+                    // Cabecera de la tabla
+                    doc.setFillColor(255, 247, 237); // #fff7ed
+                    doc.setTextColor(194, 65, 12);    // #c2410c
+                    doc.setFontSize(fontSizeCC + 1);
+                    doc.setFont(undefined, 'bold');
+                    doc.rect(MARGIN_LEFT, yPos, anchoUtil, 7, 'F');
+                    doc.text('Unidad', MARGIN_LEFT + paddingCC, yPos + 5);
+                    meses.forEach((m, idx) => {
+                        const xCentro = MARGIN_LEFT + colUnidadWidth + idx * colMesWidth + colMesWidth / 2;
+                        doc.text(m, xCentro, yPos + 5, { align: 'center' });
+                    });
+                    doc.setDrawColor(249, 115, 22);
+                    doc.setLineWidth(0.3);
+                    doc.line(MARGIN_LEFT, yPos + 7, MARGIN_LEFT + anchoUtil, yPos + 7);
+                    yPos += 7;
+
+                    // Filas (una por unidad)
+                    doc.setFontSize(fontSizeCC);
+                    doc.setFont(undefined, 'normal');
+
+                    // Altura de cada fila: depende de cuántas actividades
+                    // tenga la celda más densa. Empezamos con 8mm (1-2 act).
+                    // Si hay más, aumentamos dinámicamente (calculamos antes).
+                    // Primero, recorrer todas las celdas para ver el máximo
+                    // número de actividades por celda y ajustar la altura.
+                    let maxActsPorCelda = 0;
+                    unidadesMostrar.forEach(unidad => {
+                        meses.forEach((m, idx) => {
+                            const acts = actividadesCCData.filter(a => {
+                                if (!getUnidadesActividadCC(a).includes(unidad)) return false;
+                                if (!a.fecha) return false;
+                                try {
+                                    return new Date(a.fecha + 'T00:00:00').getMonth() === idx;
+                                } catch (e) { return false; }
+                            });
+                            if (acts.length > maxActsPorCelda) maxActsPorCelda = acts.length;
+                        });
+                    });
+                    // Altura por fila: 6mm base + 3mm por cada actividad
+                    // adicional (hasta un máximo de 5 por celda).
+                    const actsVisiblesPorCelda = Math.min(maxActsPorCelda, 5);
+                    const alturaFilaCC = 6 + Math.max(0, actsVisiblesPorCelda - 1) * 3.5;
+
+                    unidadesMostrar.forEach((unidad) => {
+                        // Fondo de la celda Unidad (color naranja claro)
+                        doc.setFillColor(254, 215, 170); // #fed7aa
+                        doc.rect(MARGIN_LEFT, yPos, colUnidadWidth, alturaFilaCC, 'F');
+                        doc.setTextColor(154, 52, 18); // #9a3412
                         doc.setFont(undefined, 'bold');
-                        doc.setTextColor(249, 115, 22);
-                        doc.text(`ACTIVIDADES COMPLEMENTARIAS (CC): ${actividadesCCData.length}`, 14, yPos);
-                        yPos += 6;
+                        // El nombre de la unidad puede no caber en 25mm a
+                        // fontSize 7; lo truncamos si es muy largo.
+                        const unidadTxt = truncarPDF(unidad, 8);
+                        doc.text(unidadTxt, MARGIN_LEFT + colUnidadWidth / 2, yPos + alturaFilaCC / 2 + 1, { align: 'center' });
+                        doc.setFont(undefined, 'normal');
 
-                        doc.autoTable({
-                            startY: yPos,
-                            head: [['Unidad', 'Actividad', 'Fecha']],
-                            body: tableDataCC,
-                            theme: 'striped',
-                            headStyles: { fillColor: [249, 115, 22], fontSize: fontSizeActual, cellPadding: paddingCell },
-                            margin: { left: 14, right: 14 },
-                            styles: { fontSize: fontSizeActual, cellPadding: paddingCell, overflow: 'linebreak' },
-                            columnStyles: {
-                                0: { cellWidth: 25 },
-                                1: { cellWidth: 200 },
-                                2: { cellWidth: 25 }
+                        // Celdas por mes
+                        meses.forEach((m, idx) => {
+                            const xCelda = MARGIN_LEFT + colUnidadWidth + idx * colMesWidth;
+                            // Fondo de la celda
+                            doc.setFillColor(248, 247, 244); // --bg
+                            doc.rect(xCelda, yPos, colMesWidth, alturaFilaCC, 'F');
+
+                            // Filtrar actividades de esta unidad+mes
+                            const acts = actividadesCCData.filter(a => {
+                                if (!getUnidadesActividadCC(a).includes(unidad)) return false;
+                                if (!a.fecha) return false;
+                                try {
+                                    return new Date(a.fecha + 'T00:00:00').getMonth() === idx;
+                                } catch (e) { return false; }
+                            });
+
+                            // Borde derecho
+                            doc.setDrawColor(229, 231, 235);
+                            doc.setLineWidth(0.2);
+                            doc.line(xCelda + colMesWidth, yPos, xCelda + colMesWidth, yPos + alturaFilaCC);
+
+                            // Contenido
+                            if (acts.length === 0) {
+                                // Celda vacía: punto gris
+                                doc.setTextColor(203, 213, 225);
+                                doc.text('·', xCelda + colMesWidth / 2, yPos + alturaFilaCC / 2 + 1, { align: 'center' });
+                            } else if (acts.length <= 2) {
+                                // 1-2 actividades: mostrar el nombre (truncado)
+                                let yAct = yPos + 4;
+                                acts.forEach(act => {
+                                    const nombreCorto = truncarPDF(act.nombre || '', 16);
+                                    const fechaCorta = act.fecha ? formatDate(act.fecha).substring(0, 5) : '';
+                                    doc.setTextColor(194, 65, 12); // naranja oscuro
+                                    doc.text(nombreCorto, xCelda + paddingCC, yAct);
+                                    if (fechaCorta) {
+                                        doc.setTextColor(156, 163, 175);
+                                        doc.setFontSize(fontSizeCC - 1);
+                                        doc.text(fechaCorta, xCelda + paddingCC, yAct + 2.5);
+                                        doc.setFontSize(fontSizeCC);
+                                        yAct += 5.5;
+                                    } else {
+                                        yAct += 3.5;
+                                    }
+                                });
+                            } else {
+                                // 3+ actividades: mostrar el número en un círculo naranja
+                                doc.setFillColor(249, 115, 22);
+                                doc.setTextColor(255, 255, 255);
+                                doc.setFont(undefined, 'bold');
+                                // Rectángulo redondeado simulado
+                                const xCentro = xCelda + colMesWidth / 2;
+                                const yCentro = yPos + alturaFilaCC / 2;
+                                doc.rect(xCentro - 4, yCentro - 3, 8, 6, 'F');
+                                doc.text(String(acts.length), xCentro, yCentro + 1, { align: 'center' });
+                                doc.setFont(undefined, 'normal');
+                                // Tooltip con los nombres (en pie de celda, línea pequeña)
+                                const nombresResumen = truncarPDF(acts.map(a => a.nombre || '').join(', '), 18);
+                                doc.setTextColor(107, 114, 128);
+                                doc.setFontSize(fontSizeCC - 2);
+                                doc.text(nombresResumen, xCelda + paddingCC, yPos + alturaFilaCC - 1.5);
+                                doc.setFontSize(fontSizeCC);
                             }
                         });
-                    }
 
-                    // Comprobar si autoTable añadió páginas adicionales.
-                    // `doc.internal.pages` es un array donde pages[0] es
-                    // metadata y pages[1..N] son las páginas reales.
-                    const numPaginas = (doc.internal.pages && doc.internal.pages.length)
-                        ? doc.internal.pages.length - 1 : 1;
-                    if (numPaginas === 1) {
-                        // Todo cabe en una sola página: este es el PDF final.
-                        docFinal = doc;
-                        break;
-                    }
-                    // Si hay más de 1 página, reducir fontSize y reintentar.
-                    fontSizeActual -= 1;
+                        // Separador inferior de la fila
+                        doc.setDrawColor(229, 231, 235);
+                        doc.setLineWidth(0.2);
+                        doc.line(MARGIN_LEFT, yPos + alturaFilaCC, MARGIN_LEFT + anchoUtil, yPos + alturaFilaCC);
+                        yPos += alturaFilaCC;
+                    });
+
+                    // Total CC
+                    yPos += 5;
+                    doc.setFillColor(255, 247, 237);
+                    doc.rect(MARGIN_LEFT, yPos, anchoUtil, 6, 'F');
+                    doc.setTextColor(154, 52, 18);
+                    doc.setFontSize(8);
+                    doc.setFont(undefined, 'bold');
+                    doc.text(`Total CC: ${actividadesCCData.length} actividades complementarias`, MARGIN_LEFT + paddingCC, yPos + 4);
+                    doc.setFont(undefined, 'normal');
                 }
 
-                // Si después de todos los intentos no cupo todo en una
-                // página, usar el último doc generado (con fontSize
-                // mínimo) y avisar al usuario.
-                if (!docFinal) {
-                    // Generar uno final con fontSize = MIN_FONT (con el
-                    // último fontSize del bucle, que es MIN_FONT si salió
-                    // por la condición fontSize >= MIN_FONT).
-                    fontSizeActual = MIN_FONT;
-                    const doc = new jsPDF('landscape');
-                    addPDFHeader(doc, 'Cuadrante Global de Actividades', true);
-                    const paddingCell = Math.max(0.2, MIN_FONT * 0.15);
-                    let yPos = 38;
-                    if (tableDataEE.length > 0) {
-                        doc.setFontSize(6);
-                        doc.setFont(undefined, 'bold');
-                        doc.setTextColor(5, 150, 105);
-                        doc.text(`ACTIVIDADES EXTRAESCOLARES (EE): ${actividadesEE.length}`, 14, yPos);
-                        yPos += 6;
-                        doc.autoTable({
-                            startY: yPos,
-                            head: [['Curso', 'Trim.', 'Actividad', 'Fecha']],
-                            body: tableDataEE,
-                            theme: 'striped',
-                            headStyles: { fillColor: [5, 150, 105], fontSize: MIN_FONT, cellPadding: paddingCell },
-                            margin: { left: 14, right: 14 },
-                            styles: { fontSize: MIN_FONT, cellPadding: paddingCell, overflow: 'linebreak' },
-                            columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 32 }, 2: { cellWidth: 165 }, 3: { cellWidth: 28 } }
-                        });
-                        yPos = doc.lastAutoTable.finalY + 6;
-                    }
-                    if (tableDataCC.length > 0) {
-                        doc.setFontSize(6);
-                        doc.setFont(undefined, 'bold');
-                        doc.setTextColor(249, 115, 22);
-                        doc.text(`ACTIVIDADES COMPLEMENTARIAS (CC): ${actividadesCCData.length}`, 14, yPos);
-                        yPos += 6;
-                        doc.autoTable({
-                            startY: yPos,
-                            head: [['Unidad', 'Actividad', 'Fecha']],
-                            body: tableDataCC,
-                            theme: 'striped',
-                            headStyles: { fillColor: [249, 115, 22], fontSize: MIN_FONT, cellPadding: paddingCell },
-                            margin: { left: 14, right: 14 },
-                            styles: { fontSize: MIN_FONT, cellPadding: paddingCell, overflow: 'linebreak' },
-                            columnStyles: { 0: { cellWidth: 25 }, 1: { cellWidth: 200 }, 2: { cellWidth: 25 } }
-                        });
-                    }
-                    docFinal = doc;
-                    avisoCompacMax = true;
-                }
-
-                docFinal.save(nombreArchivo);
-                if (avisoCompacMax) {
-                    showToast('Cuadrante muy extenso; se ha compactado al máximo posible. Es posible que necesite revisar el PDF.', 'warning');
-                } else {
-                    showToast('PDF del Cuadrante Global generado correctamente', 'success');
-                }
+                doc.save(nombreArchivo);
+                showToast('PDF del Cuadrante Global generado correctamente', 'success');
 
             } catch (error) {
                 console.error('[PDF] Error:', error);
