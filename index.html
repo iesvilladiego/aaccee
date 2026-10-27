@@ -11838,8 +11838,17 @@
 
                     // Función auxiliar: calcula la altura necesaria para
                     // una celda (sin pintar nada, solo medidas).
+                    // IMPORTANTE: fija el fontSize al valor de las celdas
+                    // (fontSizeEE) ANTES de llamar a splitTextToSize, porque
+                    // esta función usa el fontSize actual del doc. Si se
+                    // llama con el fontSize de la cabecera (14), calcula
+                    // menos líneas de las reales y la alturaFila sale
+                    // demasiado pequeña, lo que luego hace que el contenido
+                    // no quepa y el centrado vertical no funcione.
                     function alturaCeldaEE(acts) {
                         if (acts.length === 0) return 8; // Sin actividades
+                        const fontSizeAnterior = doc.getFontSize();
+                        doc.setFontSize(fontSizeEE);
                         const maxActs = 4;
                         const actsAMostrar = acts.slice(0, maxActs);
                         let h = 4; // margen superior
@@ -11851,6 +11860,9 @@
                             h += lineas.length * 3 + 3;
                         });
                         if (acts.length > maxActs) h += 4; // línea (+N más)
+                        // Restaurar el fontSize anterior (para no afectar a
+                        // posteriores llamadas al doc)
+                        doc.setFontSize(fontSizeAnterior);
                         return Math.max(h, 8);
                     }
 
@@ -11904,8 +11916,27 @@
                             // splitTextToSize, dividiéndolo en varias líneas
                             // si es necesario. La fecha va en la última línea
                             // del bloque, en un fontSize menor.
+                            //
+                            // Centrado vertical: se calcula la altura que
+                            // ocupa el contenido de ESTA celda y se reparte
+                            // el espacio sobrante (alturaFila - contenidoAltura)
+                            // a partes iguales arriba y abajo. Así, cuando
+                            // una celda tiene poco contenido pero otra celda
+                            // de la misma fila tiene mucho (porque su texto
+                            // se divide en más líneas), el contenido de la
+                            // celda menos densa queda centrado en vertical
+                            // en lugar de pegado arriba.
                             const maxActs = 4;
-                            let yAct = yPos + 4;
+                            const contenidoAltura = alturaCeldaEE(acts);
+                            // Centrado vertical: el espacio sobrante entre
+                            // la altura de la fila y la altura del contenido
+                            // se reparte a partes iguales arriba y abajo.
+                            // Si el contenido llena toda la fila, el margen
+                            // es 0 (pegado arriba). Si el contenido es menor,
+                            // queda centrado. No usar un mínimo fijo porque
+                            // empujaría el contenido largo fuera de la celda.
+                            const margenSup = Math.max(0, (alturaFila - contenidoAltura) / 2);
+                            let yAct = yPos + margenSup;
                             if (acts.length === 0) {
                                 doc.setTextColor(156, 163, 175);
                                 doc.setFont(undefined, 'italic');
@@ -12080,6 +12111,15 @@
                     // filas (uniformidad visual).
                     let alturaMaximaFila = 8;
                     const anchoTextoCC_calc = colMesWidth - paddingCC * 2;
+                    // IMPORTANTE: fijar el fontSize al de las celdas (fontSizeCC)
+                    // antes de llamar a splitTextToSize, porque esta función
+                    // usa el fontSize actual del doc (que en este punto es
+                    // el de la cabecera, 14). Sin este ajuste, se calculan
+                    // menos líneas de las reales y la altura de fila sale
+                    // demasiado pequeña, lo que luego hace que el contenido
+                    // no quepa y el centrado vertical no funcione.
+                    const fontSizeAnteriorCC = doc.getFontSize();
+                    doc.setFontSize(fontSizeCC);
                     unidadesMostrar.forEach(unidad => {
                         meses.forEach((m, idx) => {
                             const acts = actividadesCCData.filter(a => {
@@ -12108,6 +12148,10 @@
                     // pero el A4 landscape tiene 165mm útiles; con 8 filas de 20mm
                     // = 160mm, que cabe). Si hay muchas unidades, se reducirá.
                     const alturaFilaCC = Math.min(alturaMaximaFila, 25);
+                    // Restaurar el fontSize anterior (para no afectar al
+                    // pintado posterior de la cabecera de tabla, que usa
+                    // fontSizeCC + 1).
+                    doc.setFontSize(fontSizeAnteriorCC);
 
                     unidadesMostrar.forEach((unidad) => {
                         // Fondo de la celda Unidad (color naranja claro)
@@ -12147,19 +12191,31 @@
                             const anchoTextoCC = colMesWidth - paddingCC * 2;
 
                             // Contenido
+                            //
+                            // Centrado vertical: se calcula la altura que
+                            // ocupa el contenido de ESTA celda y se reparte
+                            // el espacio sobrante (alturaFilaCC - contenidoAltura)
+                            // a partes iguales arriba y abajo. Las celdas
+                            // con menos contenido quedan centradas en vertical
+                            // en lugar de pegadas arriba.
                             if (acts.length === 0) {
-                                // Celda vacía: punto gris
+                                // Celda vacía: punto gris centrado
                                 doc.setTextColor(203, 213, 225);
                                 doc.text('·', xCelda + colMesWidth / 2, yPos + alturaFilaCC / 2 + 1, { align: 'center' });
                             } else if (acts.length <= 2) {
-                                // 1-2 actividades: mostrar el nombre ajustado
-                                // al ancho de la columna (splitTextToSize).
-                                let yAct = yPos + 4;
+                                // 1-2 actividades: calcular la altura del
+                                // contenido para centrarlo verticalmente.
+                                let contenidoAltura = 0;
+                                acts.forEach(act => {
+                                    const lineas = doc.splitTextToSize(act.nombre || '', anchoTextoCC);
+                                    contenidoAltura += lineas.length * 2.7 + (act.fecha ? 3 : 1.5);
+                                });
+                                const margenSup = Math.max(0, (alturaFilaCC - contenidoAltura) / 2);
+                                let yAct = yPos + margenSup;
                                 acts.forEach(act => {
                                     const nombre = act.nombre || '';
                                     const fechaCorta = act.fecha ? formatDate(act.fecha).substring(0, 5) : '';
                                     doc.setTextColor(194, 65, 12); // naranja oscuro
-                                    // Dividir el nombre en líneas según el ancho
                                     const lineas = doc.splitTextToSize(nombre, anchoTextoCC);
                                     lineas.forEach((linea, i) => {
                                         doc.text(linea, xCelda + paddingCC, yAct + i * 2.7);
@@ -12176,14 +12232,17 @@
                                     }
                                 });
                             } else {
-                                // 3+ actividades: mostrar el número en un
-                                // rectángulo naranja y debajo un resumen con
-                                // los nombres ajustados al ancho.
+                                // 3+ actividades: rectángulo naranja con el
+                                // número + 2 líneas de resumen con los nombres.
+                                // Altura del contenido: 4mm cabecera + 2*2.5mm
+                                // de resumen = 9mm. Se centra verticalmente.
+                                const contenidoAltura = 4 + 2 * 2.5;
+                                const margenSup = Math.max(0, (alturaFilaCC - contenidoAltura) / 2);
                                 doc.setFillColor(249, 115, 22);
                                 doc.setTextColor(255, 255, 255);
                                 doc.setFont(undefined, 'bold');
                                 const xCentro = xCelda + colMesWidth / 2;
-                                const yCentro = yPos + 4;
+                                const yCentro = yPos + margenSup;
                                 doc.rect(xCentro - 4, yCentro - 1, 8, 6, 'F');
                                 doc.text(String(acts.length), xCentro, yCentro + 3, { align: 'center' });
                                 doc.setFont(undefined, 'normal');
