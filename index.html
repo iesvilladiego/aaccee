@@ -11927,16 +11927,17 @@
                             // celda menos densa queda centrado en vertical
                             // en lugar de pegado arriba.
                             const maxActs = 4;
-                            const contenidoAltura = alturaCeldaEE(acts);
-                            // Centrado vertical: el espacio sobrante entre
-                            // la altura de la fila y la altura del contenido
-                            // se reparte a partes iguales arriba y abajo.
-                            // Si el contenido llena toda la fila, el margen
-                            // es 0 (pegado arriba). Si el contenido es menor,
-                            // queda centrado. No usar un mínimo fijo porque
-                            // empujaría el contenido largo fuera de la celda.
-                            const margenSup = Math.max(0, (alturaFila - contenidoAltura) / 2);
-                            let yAct = yPos + margenSup;
+                            // Margen superior fijo de 4mm: garantiza que el
+                            // contenido nunca se salga por la parte superior de
+                            // la celda. Antes se intentó centrar verticalmente
+                            // con margenSup = (alturaFila - contenidoAltura) / 2,
+                            // pero cuando el contenido era tan alto como la fila
+                            // el margen daba 0 y el texto se salía por arriba
+                            // (el cálculo de altura estimada no coincidía exactamente
+                            // con la altura real del pintado). Volviendo al margen
+                            // fijo de 4mm, el contenido queda pegado arriba con un
+                            // pequeño aire, que es lo que el usuario prefiere.
+                            let yAct = yPos + 4;
                             if (acts.length === 0) {
                                 doc.setTextColor(156, 163, 175);
                                 doc.setFont(undefined, 'italic');
@@ -12210,7 +12211,7 @@
                                     const lineas = doc.splitTextToSize(act.nombre || '', anchoTextoCC);
                                     contenidoAltura += lineas.length * 2.7 + (act.fecha ? 3 : 1.5);
                                 });
-                                const margenSup = Math.max(0, (alturaFilaCC - contenidoAltura) / 2);
+                                const margenSup = 4;
                                 let yAct = yPos + margenSup;
                                 acts.forEach(act => {
                                     const nombre = act.nombre || '';
@@ -12237,7 +12238,7 @@
                                 // Altura del contenido: 4mm cabecera + 2*2.5mm
                                 // de resumen = 9mm. Se centra verticalmente.
                                 const contenidoAltura = 4 + 2 * 2.5;
-                                const margenSup = Math.max(0, (alturaFilaCC - contenidoAltura) / 2);
+                                const margenSup = 4;
                                 doc.setFillColor(249, 115, 22);
                                 doc.setTextColor(255, 255, 255);
                                 doc.setFont(undefined, 'bold');
