@@ -11741,7 +11741,7 @@
                     const { jsPDF: jsPDF_v } = window.jspdf;
                     const docV = new jsPDF_v('landscape');
                     const cursoVacio = (typeof getNombreCursoVista === 'function') ? (getNombreCursoVista() || '') : '';
-                    addPDFHeader(docV, 'Cuadrante Global de Actividades', true, cursoVacio);
+                    addPDFHeader(docV, '', true, cursoVacio);
                     docV.setFontSize(12);
                     docV.setTextColor(107, 114, 128);
                     docV.text('No hay actividades que mostrar para el tipo seleccionado.', 14, 60);
@@ -11755,7 +11755,7 @@
                 const pageWidth = doc.internal.pageSize.getWidth();   // ~297mm
                 const pageHeight = doc.internal.pageSize.getHeight(); // ~210mm
                 const cursoEscolarVista = (typeof getNombreCursoVista === 'function') ? (getNombreCursoVista() || '') : '';
-                addPDFHeader(doc, 'Cuadrante Global de Actividades', true, cursoEscolarVista);
+                addPDFHeader(doc, '', true, cursoEscolarVista);
 
                 // === Constantes de paginación ===
                 // El header ocupa 35mm. Tras él, dejamos 5mm y empezamos
@@ -11764,7 +11764,10 @@
                 const MARGIN_RIGHT = 14;
                 // MARGIN_TOP: 38mm si no hay curso escolar (header 35 + 3 aire),
                 // 41mm si lo hay (header 38 + 3 aire).
-                const MARGIN_TOP = cursoEscolarVista ? 41 : 38;
+                // MARGIN_TOP ajustado al banner recortado: 34mm con
+                // curso escolar (banner 30 + 4 aire), 29mm sin curso
+                // (banner 25 + 4 aire).
+                const MARGIN_TOP = cursoEscolarVista ? 34 : 29;
                 const MARGIN_BOTTOM = 10;
                 const anchoUtil = pageWidth - MARGIN_LEFT - MARGIN_RIGHT; // ~269mm
 
@@ -12033,10 +12036,11 @@
                             }
                         });
 
-                        // Separador inferior de la fila
-                        doc.setDrawColor(229, 231, 235);
-                        doc.setLineWidth(0.2);
-                        doc.line(MARGIN_LEFT, yPos + alturaFila, MARGIN_LEFT + anchoUtil, yPos + alturaFila);
+                        // Borde negro de 1px (0.3pt) alrededor de
+                        // toda la fila para mejorar la presentación.
+                        doc.setDrawColor(0, 0, 0);
+                        doc.setLineWidth(0.3);
+                        doc.rect(MARGIN_LEFT, yPos, anchoUtil, alturaFila, 'S');
                         yPos += alturaFila;
                     });
 
@@ -12063,7 +12067,7 @@
                         doc.addPage();
                         // Repetir el header (con curso escolar) en la nueva
                         // página para que el cuadrante CC también lo muestre.
-                        addPDFHeader(doc, 'Cuadrante Global de Actividades', true, cursoEscolarVista);
+                        addPDFHeader(doc, '', true, cursoEscolarVista);
                     }
                     primeraPaginaConCuadrante = false;
 
@@ -12295,10 +12299,11 @@
                             }
                         });
 
-                        // Separador inferior de la fila
-                        doc.setDrawColor(229, 231, 235);
-                        doc.setLineWidth(0.2);
-                        doc.line(MARGIN_LEFT, yPos + alturaFilaCC, MARGIN_LEFT + anchoUtil, yPos + alturaFilaCC);
+                        // Borde negro de 1px (0.3pt) alrededor de
+                        // toda la fila para mejorar la presentación.
+                        doc.setDrawColor(0, 0, 0);
+                        doc.setLineWidth(0.3);
+                        doc.rect(MARGIN_LEFT, yPos, anchoUtil, alturaFilaCC, 'S');
                         yPos += alturaFilaCC;
                     });
 
@@ -12842,8 +12847,10 @@
             const pageWidth = doc.internal.pageSize.getWidth();
             const pageHeight = doc.internal.pageSize.getHeight();
             const centerX = pageWidth / 2;
-            // Si hay curso escolar, reservamos 5mm más para esa línea.
-            const headerHeight = cursoEscolar ? 38 : 35;
+            // Banner recortado: 30mm con curso escolar (IES + sede +
+            // curso), 25mm sin él. Antes era 38/35mm, lo que pisaba el
+            // título del cuadrante EE/CC.
+            const headerHeight = cursoEscolar ? 30 : 25;
 
             // Fondo del header
             doc.setFillColor(13, 115, 119);
@@ -12851,36 +12858,38 @@
 
             // Título del centro
             doc.setTextColor(255, 255, 255);
-            doc.setFontSize(16);
-            doc.setFont(undefined, 'bold');
-            doc.text('IES Virgen de Villadiego', centerX, 12, { align: 'center' });
-            doc.setFontSize(10);
-            doc.setFont(undefined, 'normal');
-            doc.text('Peñaflor (Sevilla)', centerX, 18, { align: 'center' });
-
-            // Título del informe: los títulos largos se ajustan al ancho
-            // (hasta 2 líneas) en lugar de desbordarse por los márgenes
             doc.setFontSize(14);
             doc.setFont(undefined, 'bold');
-            const tituloInforme = String(title || 'Informe');
-            const lineasTitulo = doc.splitTextToSize(tituloInforme, pageWidth - 20).slice(0, 2);
-            if (lineasTitulo.length > 1) {
-                doc.text(lineasTitulo[0], centerX, 25, { align: 'center' });
-                doc.text(lineasTitulo[1], centerX, 31, { align: 'center' });
-            } else {
-                doc.text(lineasTitulo[0] || tituloInforme, centerX, 27, { align: 'center' });
+            doc.text('IES Virgen de Villadiego', centerX, 10, { align: 'center' });
+            doc.setFontSize(9);
+            doc.setFont(undefined, 'normal');
+            doc.text('Peñaflor (Sevilla)', centerX, 15, { align: 'center' });
+
+            // Título del informe (opcional, solo si se pasa title no
+            // vacío). En el cuadrante global pasamos '' para que no
+            // aparezca (el título del cuadrante EE/CC va aparte, más
+            // abajo, en su propio color).
+            if (title && String(title).trim()) {
+                doc.setFontSize(12);
+                doc.setFont(undefined, 'bold');
+                const tituloInforme = String(title);
+                const lineasTitulo = doc.splitTextToSize(tituloInforme, pageWidth - 20).slice(0, 2);
+                if (lineasTitulo.length > 1) {
+                    doc.text(lineasTitulo[0], centerX, 20, { align: 'center' });
+                    doc.text(lineasTitulo[1], centerX, 25, { align: 'center' });
+                } else {
+                    doc.text(lineasTitulo[0] || tituloInforme, centerX, 22, { align: 'center' });
+                }
             }
 
             // Curso escolar (línea adicional, opcional): se muestra
-            // debajo del título del informe, en un color más claro para
-            // distinguirlo. Solo se renderiza si el parámetro llega con
-            // contenido (no vacío ni null).
+            // debajo del título del centro, en un color más claro.
             if (cursoEscolar && String(cursoEscolar).trim()) {
-                doc.setFontSize(10);
+                doc.setFontSize(9);
                 doc.setFont(undefined, 'normal');
-                doc.setTextColor(180, 220, 220); // verde-azulado claro
+                doc.setTextColor(180, 220, 220);
                 const txtCurso = 'Curso escolar: ' + String(cursoEscolar).trim();
-                doc.text(txtCurso, centerX, 35, { align: 'center' });
+                doc.text(txtCurso, centerX, 27, { align: 'center' });
             }
 
             // Fecha de generación - dentro de los márgenes de la página
