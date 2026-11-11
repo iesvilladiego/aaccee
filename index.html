@@ -6941,6 +6941,126 @@
         }
 
         /**
+         * Etiqueta de año escolar («2026-2027») a partir de una fecha en
+         * formato ISO («YYYY-MM-DD...»). Un curso escolar va del 1 de
+         * septiembre al 31 de agosto. Se compara texto, no objetos Date,
+         * para evitar desvíos de zona horaria.
+         */
+        function etiquetaAnoEscolarDeFecha(fecha) {
+            const m = String(fecha || '').slice(0, 10).match(/^(\d{4})-(\d{2})/);
+            if (!m) return null;
+            const anio = parseInt(m[1], 10);
+            const mes = parseInt(m[2], 10);
+            if (!anio || !mes || mes < 1 || mes > 12) return null;
+            return mes >= 9 ? `${anio}-${anio + 1}` : `${anio - 1}-${anio}`;
+        }
+
+        /**
+         * Etiqueta de año escolar a partir del nombre de un curso escolar
+         * («2026/2027», «Curso 2026-2027», ...).
+         */
+        function etiquetaAnoEscolarDeNombre(nombre) {
+            const m = String(nombre || '').match(/(\d{4})\s*[/\-–]\s*(\d{4})/);
+            return m ? `${m[1]}-${m[2]}` : null;
+        }
+
+        /**
+         * Etiqueta de año escolar a la que pertenece una actividad: por su
+         * fecha (o fecha de creación); si no tiene, por el curso escolar al
+         * que está asignada. null si no se puede atribuir.
+         */
+        function getEtiquetaActividadCurso(act) {
+            if (!act) return null;
+            const deFecha = etiquetaAnoEscolarDeFecha(act.fecha) ||
+                            etiquetaAnoEscolarDeFecha(act.createdAt || act.creadoEn);
+            if (deFecha) return deFecha;
+            if (act.cursoEscolarId) {
+                const curso = (appData?.config?.cursosEscolares || []).find(c => c.id === act.cursoEscolarId);
+                if (curso) {
+                    return etiquetaAnoEscolarDeNombre(curso.nombre) ||
+                           etiquetaAnoEscolarDeFecha(curso.fechaInicio);
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Curso escolar de referencia de los INFORMES: el curso en el que se
+         * solicitan. Orden de resolución:
+         * 1. El «Curso de gestión» elegido por admin/dace (consulta deliberada).
+         * 2. El curso configurado cuyo año escolar contiene la fecha de hoy
+         *    (regla 1-sep → 31-ago).
+         * 3. Si ningún curso configurado cubre hoy: referencia virtual por
+         *    fecha (p. ej. «2026/2027»), para que los informes no arrastren
+         *    actividades de cursos anteriores aunque la configuración esté
+         *    desfasada.
+         * Devuelve { id, etiqueta, nombre }; `etiqueta` null = sin filtro
+         * (no hay cursos escolares configurados: compatibilidad).
+         */
+        function getCursoInforme() {
+            const cursos = appData?.config?.cursosEscolares || [];
+            const esGestor = currentUser && (currentUser.rol === 'admin' || currentUser.rol === 'dace');
+            if (esGestor && cursoGestionId) {
+                const curso = cursos.find(c => c.id === cursoGestionId);
+                if (curso) {
+                    const etiqueta = etiquetaAnoEscolarDeNombre(curso.nombre) ||
+                                     etiquetaAnoEscolarDeFecha(curso.fechaInicio);
+                    return { id: curso.id, etiqueta: etiqueta, nombre: curso.nombre || (etiqueta ? etiqueta.replace('-', '/') : '') };
+                }
+            }
+            const etiquetaHoy = etiquetaAnoEscolarDeFecha(formatDateUniversal(new Date()));
+            if (cursos.length > 0) {
+                const cursoHoy = cursos.find(c =>
+                    etiquetaAnoEscolarDeNombre(c.nombre) === etiquetaHoy ||
+                    etiquetaAnoEscolarDeFecha(c.fechaInicio) === etiquetaHoy);
+                if (cursoHoy) {
+                    return { id: cursoHoy.id, etiqueta: etiquetaHoy, nombre: cursoHoy.nombre || etiquetaHoy.replace('-', '/') };
+                }
+            }
+            if (cursos.length === 0) {
+                // Sin cursos escolares configurados: no filtrar (compatibilidad)
+                return { id: null, etiqueta: null, nombre: etiquetaHoy ? etiquetaHoy.replace('-', '/') : '' };
+            }
+            // Hay cursos configurados pero ninguno cubre la fecha de hoy:
+            // los informes se refieren al año escolar actual por fecha
+            return { id: null, etiqueta: etiquetaHoy, nombre: etiquetaHoy ? etiquetaHoy.replace('-', '/') : '' };
+        }
+
+        /** Nombre del curso de referencia de los informes (o cadena vacía) */
+        function getNombreCursoInforme() {
+            return getCursoInforme().nombre || '';
+        }
+
+        /**
+         * Actividades EE del curso de referencia de los informes. Se compara
+         * el año escolar de cada actividad (por fecha y, en su defecto, por
+         * su curso asignado): así una actividad de mayo de 2026 no aparece en
+         * los informes solicitados en 2026-2027 aunque su curso guardado sea
+         * otro. Las actividades sin fecha ni curso atribuible se mantienen
+         * (compatibilidad con datos antiguos).
+         */
+        function getActividadesInformeEE() {
+            const ref = getCursoInforme();
+            const fuente = Array.isArray(appData?.actividades) ? appData.actividades : [];
+            if (!ref.etiqueta) return fuente;
+            return fuente.filter(a => {
+                const etq = getEtiquetaActividadCurso(a);
+                return !etq || etq === ref.etiqueta;
+            });
+        }
+
+        /** Actividades CC del curso de referencia de los informes */
+        function getActividadesInformeCC() {
+            const ref = getCursoInforme();
+            const fuente = Array.isArray(actividadesCC) ? actividadesCC : [];
+            if (!ref.etiqueta) return fuente;
+            return fuente.filter(a => {
+                const etq = getEtiquetaActividadCurso(a);
+                return !etq || etq === ref.etiqueta;
+            });
+        }
+
+        /**
          * Curso escolar efectivo de una actividad: su cursoEscolarId o, si es
          * una actividad antigua sin curso asignado, el que le corresponde por
          * su fecha (regla 1-sep → 31-ago).
@@ -8125,8 +8245,11 @@
         function renderInformeSelects() {
             const profSelect = document.getElementById('informeProfesor');
 
-            // Obtener profesores que han participado en ALGUNA actividad del curso actual
-            const actividadesCurso = getActividadesCursoActivo();
+            // Obtener profesores que han participado en ALGUNA actividad del
+            // curso de referencia de los informes
+            const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+                ? getActividadesInformeEE()
+                : getActividadesCursoActivo();
             const profesoresConActividades = new Set();
 
             actividadesCurso.forEach(act => {
@@ -11036,7 +11159,7 @@
                     throw new Error('No se encuentra el selector de estado (informeCursoEstado)');
                 }
 
-                addPDFHeader(doc, 'Informe de Actividades por Curso');
+                addPDFHeader(doc, 'Informe de Actividades por Curso', false, getNombreCursoInforme());
 
                 // Obtener filtros seleccionados
                 const nivelesSeleccionados = getNivelesSeleccionados();
@@ -11051,7 +11174,9 @@
                 // Contador de actividades volcadas al PDF: permite avisar de
                 // informes vacíos en lugar de guardar una página en blanco
                 let actividadesImpresas = 0;
-                const actividadesCurso = getActividadesCursoActivo();
+                const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+                    ? getActividadesInformeEE()
+                    : getActividadesCursoActivo();
 
                 nivelesSeleccionados.forEach(curso => {
                     let actividades = actividadesCurso.filter(a => getCursosActividad(a).includes(curso));
@@ -11215,7 +11340,7 @@
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF();
 
-                addPDFHeader(doc, 'Informe de Actividades por Trimestre');
+                addPDFHeader(doc, 'Informe de Actividades por Trimestre', false, getNombreCursoInforme());
 
             // Obtener filtros seleccionados
             const trimestresSeleccionados = getTrimestresSeleccionados();
@@ -11234,7 +11359,9 @@
             let yPos = 45;
             // Contador de actividades volcadas al PDF (informes vacíos)
             let actividadesImpresas = 0;
-            const actividadesCurso = getActividadesCursoActivo();
+            const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+                ? getActividadesInformeEE()
+                : getActividadesCursoActivo();
 
             trimestresSeleccionados.forEach(trimestre => {
                 let actividades = actividadesCurso.filter(a => a.trimestre === trimestre);
@@ -11398,9 +11525,11 @@
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF('landscape');
 
-                addPDFHeader(doc, 'Informe Global de Actividades Extraescolares (EE)', true);
+                addPDFHeader(doc, 'Informe Global de Actividades Extraescolares (EE)', true, getNombreCursoInforme());
 
-                const actividades = getActividadesCursoActivo();
+                const actividades = (typeof getActividadesInformeEE === 'function')
+                    ? getActividadesInformeEE()
+                    : getActividadesCursoActivo();
 
                 if (actividades.length === 0) {
                     doc.setFontSize(12);
@@ -11467,11 +11596,19 @@
                 }
 
                 const tipoSeleccionado = document.getElementById('cuadranteTipoActividad')?.value || 'ambas';
+                // Curso escolar al que se refiere el cuadrante (informe)
+                const cursoCuadranteLabel = (typeof getNombreCursoInforme === 'function')
+                    ? getNombreCursoInforme()
+                    : '';
 
                 // Obtener actividades EE
                 let actividadesCurso = [];
                 try {
-                    actividadesCurso = getActividadesCursoActivo();
+                    // El cuadrante es un informe: se refiere al curso en el
+                    // que se solicita (por fecha si no hay curso configurado)
+                    actividadesCurso = (typeof getActividadesInformeEE === 'function')
+                        ? getActividadesInformeEE()
+                        : getActividadesCursoActivo();
                 } catch (e) {
                     console.error('[CUADRANTE] Error al obtener actividades EE:', e);
                     actividadesCurso = [];
@@ -11480,7 +11617,12 @@
                 // Verificar actividades CC
                 let ccData = [];
                 try {
-                    ccData = Array.isArray(actividadesCC) ? actividadesCC : [];
+                    // Aislamiento por curso escolar: el cuadrante es un informe
+                    // y debe referirse al curso en el que se solicita (antes se
+                    // mezclaban actividades de TODOS los cursos escolares)
+                    ccData = (typeof getActividadesInformeCC === 'function')
+                        ? getActividadesInformeCC()
+                        : (Array.isArray(actividadesCC) ? actividadesCC : []);
                 } catch (e) {
                     console.error('[CUADRANTE] Error al acceder a actividadesCC:', e);
                     ccData = [];
@@ -11502,7 +11644,7 @@
                                     </svg>
                                     Cuadrante de Actividades Extraescolares (EE)
                                 </h4>
-                                <p class="text-sm opacity-90 mt-1">Organizadas por curso y trimestre</p>
+                                <p class="text-sm opacity-90 mt-1">Organizadas por curso y trimestre${cursoCuadranteLabel ? ' · Curso ' + cursoCuadranteLabel : ''}</p>
                             </div>
                             <div class="p-4" style="background: var(--card);">
                                 <div class="overflow-x-auto">
@@ -11633,8 +11775,17 @@
                         getUnidadesActividadCC(a).forEach(u => unidadesSet.add(u));
                     });
                     const unidades = [...unidadesSet].filter(Boolean).sort();
+                    // Columnas de meses CON su año: el curso escolar abarca dos
+                    // años naturales (sep-dic del primero, ene-ago del segundo);
+                    // sin el año, una actividad de mayo de 2026 caería en la
+                    // columna de mayo de 2027
+                    const anioInicioCC = (typeof getCursoInforme === 'function')
+                        ? parseInt(String(getCursoInforme().etiqueta || '').slice(0, 4), 10)
+                        : NaN;
+                    const anioBaseCC = isNaN(anioInicioCC) ? new Date().getFullYear() : anioInicioCC;
                     const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-                                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+                        .map((nombre, idx) => ({ nombre: nombre, mes: idx, anio: idx >= 8 ? anioBaseCC : anioBaseCC + 1 }));
 
                     html += `
                         <div class="mt-4 rounded-xl overflow-hidden" style="border: 2px solid #f97316;">
@@ -11647,7 +11798,7 @@
                                     </svg>
                                     Cuadrante de Actividades Complementarias (CC)
                                 </h4>
-                                <p class="text-sm opacity-90 mt-1">Organizadas por unidad y mes</p>
+                                <p class="text-sm opacity-90 mt-1">Organizadas por unidad y mes${cursoCuadranteLabel ? ' · Curso ' + cursoCuadranteLabel : ''}</p>
                             </div>
                             <div class="p-4" style="background: var(--card);">
                                 <div class="overflow-x-auto">
@@ -11656,7 +11807,7 @@
                                             <tr>
                                                 <th class="p-2 text-left font-semibold" style="background: #fff7ed; color: #c2410c; border-bottom: 2px solid #f97316;">Unidad</th>
                                                 ${meses.map(m => `
-                                                    <th class="p-1 text-center font-semibold text-xs" style="background: #fff7ed; color: #c2410c; border-bottom: 2px solid #f97316;">${m.substring(0,3)}</th>
+                                                    <th class="p-1 text-center font-semibold text-xs" style="background: #fff7ed; color: #c2410c; border-bottom: 2px solid #f97316;">${m.nombre.substring(0,3)}</th>
                                                 `).join('')}
                                             </tr>
                                         </thead>
@@ -11677,13 +11828,15 @@
                         `;
 
                         // Celdas de meses
-                        meses.forEach((mes, idx) => {
+                        meses.forEach((mes) => {
                             const acts = ccData.filter(a => {
                                 if (!getUnidadesActividadCC(a).includes(unidad)) return false;
                                 if (!a.fecha) return false;
                                 try {
                                     const fecha = new Date(a.fecha + 'T00:00:00');
-                                    return fecha.getMonth() === idx;
+                                    // Mes y año: solo así se excluyen actividades
+                                    // del mismo mes pero de otro curso escolar
+                                    return fecha.getMonth() === mes.mes && fecha.getFullYear() === mes.anio;
                                 } catch (e) {
                                     return false;
                                 }
@@ -11846,12 +11999,16 @@
                 const nombreArchivo = `Cuadrante_Global_${tipoStr}_${formatDateTimeFile()}.pdf`;
 
                 // Obtener datos
+                // El cuadrante es un informe: se refiere al curso en el que
+                // se solicita (por fecha si no hay curso configurado)
                 const actividadesEE = (tipoSel === 'ambas' || tipoSel === 'EE')
-                    ? (typeof getActividadesCursoActivo === 'function' ? getActividadesCursoActivo() : [])
+                    ? (typeof getActividadesInformeEE === 'function'
+                        ? getActividadesInformeEE()
+                        : (typeof getActividadesCursoActivo === 'function' ? getActividadesCursoActivo() : []))
                     : [];
                 const actividadesCCData = (tipoSel === 'ambas' || tipoSel === 'CC')
-                    ? ((typeof getActividadesCCVisibles === 'function')
-                        ? getActividadesCCVisibles()
+                    ? ((typeof getActividadesInformeCC === 'function')
+                        ? getActividadesInformeCC()
                         : (Array.isArray(actividadesCC) ? actividadesCC : []))
                     : [];
 
@@ -12458,7 +12615,9 @@
                 return;
             }
 
-            const actividadesCurso = getActividadesCursoActivo();
+            const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+                ? getActividadesInformeEE()
+                : getActividadesCursoActivo();
             // Verificar que profesorado existe y es un array antes de filtrar
             const actividades = actividadesCurso.filter(a =>
                 a.profesorado && Array.isArray(a.profesorado) && a.profesorado.includes(profesor)
@@ -12475,7 +12634,7 @@
                 }                const { jsPDF } = window.jspdf;
                 const doc = new jsPDF();
 
-                addPDFHeader(doc, `Informe de Profesorado: ${profesor}`);
+                addPDFHeader(doc, `Informe de Profesorado: ${profesor}`, false, getNombreCursoInforme());
 
                 const tableData = actividades.map(act => [
                     (getCursosActividad(act).join(', ') || '-'),
@@ -12517,7 +12676,9 @@
             }
             const tipoActividad = tipoActividadEl.value;
 
-            const actividadesCurso = getActividadesCursoActivo();
+            const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+                ? getActividadesInformeEE()
+                : getActividadesCursoActivo();
 
             // Filtrar actividades por departamentos seleccionados
             let actividades = actividadesCurso.filter(a =>
@@ -12555,7 +12716,7 @@
                     subtituloTipo = ' - Actividades Propuestas';
                 }
 
-                addPDFHeader(doc, `Informe de Departamento(s): ${tituloDeptos}${subtituloTipo}`);
+                addPDFHeader(doc, `Informe de Departamento(s): ${tituloDeptos}${subtituloTipo}`, false, getNombreCursoInforme());
 
                 // Preparar datos de la tabla con columna de estado
                 const tableData = actividades.map(act => {
@@ -12691,7 +12852,9 @@
                     showToast('Selecciona al menos un nivel (curso)', 'warning');
                     return;
                 }
-                const actividadesCurso = getActividadesCursoActivo();
+                const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+                    ? getActividadesInformeEE()
+                    : getActividadesCursoActivo();
                 let totalImpresas = 0;
                 let tarjetasHTML = '';
                 nivelesSeleccionados.forEach(curso => {
@@ -12760,7 +12923,9 @@
                     showToast('Selecciona al menos un trimestre', 'warning');
                     return;
                 }
-                const actividadesCurso = getActividadesCursoActivo();
+                const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+                    ? getActividadesInformeEE()
+                    : getActividadesCursoActivo();
                 let totalImpresas = 0;
                 let tarjetasHTML = '';
                 trimestresSeleccionados.forEach(trimestre => {
@@ -12828,7 +12993,9 @@
                     showToast('Selecciona un profesor', 'warning');
                     return;
                 }
-                const actividadesCurso = getActividadesCursoActivo();
+                const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+                    ? getActividadesInformeEE()
+                    : getActividadesCursoActivo();
                 const actividades = actividadesCurso.filter(a =>
                     a.profesorado && Array.isArray(a.profesorado) && a.profesorado.includes(profesor)
                 );
@@ -12881,7 +13048,9 @@
                     return;
                 }
                 const tipoActividad = tipoActividadEl.value;
-                const actividadesCurso = getActividadesCursoActivo();
+                const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+                    ? getActividadesInformeEE()
+                    : getActividadesCursoActivo();
                 let actividades = actividadesCurso.filter(a =>
                     a.departamentos && Array.isArray(a.departamentos) &&
                     a.departamentos.some(dept => departamentosSeleccionados.includes(dept))
@@ -15666,7 +15835,9 @@ function generateInformeCCUnidad() {
         // Filtrar actividades por unidad (del curso aplicado, como el resto
         // de la aplicación: antes se mezclaban todos los cursos escolares)
         // Multi-unidad: una actividad aparece si alguna de sus unidades está seleccionada
-        const fuenteCCUnidad = (typeof getActividadesCCVisibles === 'function') ? getActividadesCCVisibles() : actividadesCC;
+        // Informe referido al curso en el que se solicita (por fecha si no
+        // hay curso configurado), no al almacenado, que puede estar desfasado
+        const fuenteCCUnidad = (typeof getActividadesInformeCC === 'function') ? getActividadesInformeCC() : actividadesCC;
         let filtradas = fuenteCCUnidad.filter(act => {
             const udsAct = getUnidadesActividadCC(act);
             return udsAct.some(u => unidadesSeleccionadas.includes(u));
@@ -15989,7 +16160,9 @@ function generateInformeCCPeriodo() {
 
     // Filtrar actividades por rango de fechas (del curso aplicado, como el
     // resto de la aplicación: antes se mezclaban todos los cursos escolares)
-    const fuenteCCPeriodo = (typeof getActividadesCCVisibles === 'function') ? getActividadesCCVisibles() : actividadesCC;
+    // El rango de fechas elegido manda: se busca en todas las actividades CC
+    // para poder consultar también períodos de cursos anteriores
+    const fuenteCCPeriodo = Array.isArray(actividadesCC) ? actividadesCC : [];
     const filtradas = fuenteCCPeriodo.filter(act =>
         act.fecha >= fechaDesde && act.fecha <= fechaHasta
  ).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
@@ -16394,7 +16567,7 @@ function generarPDFCC(docParam, tipo) {
         titulo = `${titulo} — ${enPantalla.subtitulo}`;
     }
 
-    addPDFHeader(doc, titulo);
+    addPDFHeader(doc, titulo, false, getNombreCursoInforme());
 
     if (datos.length === 0) {
         doc.setFontSize(12);
@@ -16529,7 +16702,7 @@ function generarPDFEE(docParam, tipo) {
         titulo = `${titulo} — ${enPantalla.subtitulo}`;
     }
 
-    addPDFHeader(doc, titulo);
+    addPDFHeader(doc, titulo, false, getNombreCursoInforme());
 
     if (datos.length === 0) {
         doc.setFontSize(12);
@@ -16828,9 +17001,9 @@ ${cuerpoHTML}
  * Obtiene datos del informe CC por unidad
  */
 function obtenerDatosInformeCCUnidad() {
-    // Aislar por curso escolar (el aplicado, como el resto de la app): sin
-    // esto los PDF CC mezclarían actividades de TODOS los cursos escolares
-    const fuente = (typeof getActividadesCCVisibles === 'function') ? getActividadesCCVisibles() : actividadesCC;
+    // Aislar por el curso de referencia de los informes (por fecha si no hay
+    // curso configurado): sin esto los PDF CC mezclarían cursos escolares
+    const fuente = (typeof getActividadesInformeCC === 'function') ? getActividadesInformeCC() : actividadesCC;
     if (!Array.isArray(fuente)) return [];
     return fuente.map(a => ({
         unidad: getUnidadesActividadCC(a).join(', '),
@@ -16858,9 +17031,11 @@ function obtenerDatosResumenCC() {
  * Obtiene datos del informe EE por curso/trimestre
  */
 function obtenerDatosInformeEECursoTrim() {
-    const actividadesCurso = typeof getActividadesCursoActivo === 'function'
-        ? getActividadesCursoActivo()
-        : [];
+    // Informe referido al curso en el que se solicita (por fecha si no hay
+    // curso configurado)
+    const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+        ? getActividadesInformeEE()
+        : (typeof getActividadesCursoActivo === 'function' ? getActividadesCursoActivo() : []);
     if (!Array.isArray(actividadesCurso)) return [];
 
     return actividadesCurso.map(a => ({
@@ -16899,9 +17074,10 @@ function generateInformeEECursoTrim() {
         const container = document.getElementById('resultadoInformeEECursoTrim');
         if (!container) return;
 
-        // Obtener actividades del curso activo
-        const actividadesCurso = typeof getActividadesCursoActivo === 'function'
-            ? getActividadesCursoActivo()
+        // Informe referido al curso en el que se solicita (por fecha si no
+        // hay curso configurado)
+        const actividadesCurso = (typeof getActividadesInformeEE === 'function')
+            ? getActividadesInformeEE()
             : (typeof appData !== 'undefined' ? appData.actividades : []);
 
         if (!Array.isArray(actividadesCurso) || actividadesCurso.length === 0) {
@@ -17097,10 +17273,11 @@ function generateInformeEEPeriodo() {
         const container = document.getElementById('resultadoInformeEEPeriodo');
         if (!container) return;
 
-        // Obtener actividades del curso activo
-        const actividadesCurso = typeof getActividadesCursoActivo === 'function'
-            ? getActividadesCursoActivo()
-            : (typeof appData !== 'undefined' ? appData.actividades : []);
+        // El rango de fechas elegido manda: se busca en todas las actividades
+        // EE para poder consultar también períodos de cursos anteriores
+        const actividadesCurso = (typeof appData !== 'undefined' && Array.isArray(appData.actividades))
+            ? appData.actividades
+            : [];
 
         if (!Array.isArray(actividadesCurso) || actividadesCurso.length === 0) {
             container.innerHTML = `
