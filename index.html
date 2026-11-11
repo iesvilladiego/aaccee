@@ -3708,7 +3708,7 @@
                                 </svg>
                                 Informes Generales
                             </h2>
-                            <span class="text-xs font-normal" style="color: var(--muted);">Cuadrante global de actividades</span>
+                            <span class="text-xs font-normal" style="color: var(--muted);">Cuadrante global e Informe Global EE</span>
                             <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="6 9 12 15 18 9"/>
                             </svg>
@@ -3754,6 +3754,36 @@
 
                                             <!-- Contenedor del resultado -->
                                             <div id="resultadoCuadranteGlobal" class="hidden"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Informe Global EE - Acordeón -->
+                                <div class="card overflow-hidden">
+                                    <div class="accordion-header" onclick="toggleAccordion(this)">
+                                        <h2 class="font-display text-lg font-bold flex items-center gap-2" style="color: var(--accent);">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="21" x2="9" y2="15"/>
+                                            </svg>
+                                            Informe Global EE
+                                        </h2>
+                                        <span class="text-xs font-normal" style="color: var(--muted);">Todas las EE: título, curso y trimestre (apaisado)</span>
+                                        <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="6 9 12 15 18 9"/>
+                                        </svg>
+                                    </div>
+                                    <div class="accordion-content">
+                                        <div class="p-6 space-y-4">
+                                            <p style="color: var(--muted);">
+                                                Genera un PDF apaisado con una tabla de todas las actividades extraescolares del curso activo: título completo de la actividad, curso y trimestre.
+                                            </p>
+
+                                            <button onclick="generateInformeGlobalEE()" class="btn btn-primary w-full justify-center">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="21" x2="9" y2="15"/>
+                                                </svg>
+                                                Generar informe global
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -11037,6 +11067,13 @@
                     actividadesImpresas += actividades.length;
                     if (actividades.length === 0) return;
 
+                // Si el título del grupo no cabe ya en la página, saltar a
+                // una página nueva para que no quede fuera del PDF
+                if (yPos > doc.internal.pageSize.getHeight() - 40) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+
                 doc.setFontSize(14);
                 doc.setFont(undefined, 'bold');
                 doc.text(curso, 14, yPos);
@@ -11057,8 +11094,10 @@
 
                         const tableDataRealizadas = realizadas.map(act => [
                             act.trimestre || '-',
-                            truncarPDF(act.nombre || 'Sin nombre', 40),
-                            (act.departamentos || []).join(', ').substring(0, 25),
+                            // Texto completo: autoTable parte las celdas largas
+                            // en varias líneas en lugar de recortar
+                            act.nombre || 'Sin nombre',
+                            (act.departamentos || []).join(', ') || '-',
                             act.fecha ? formatDate(act.fecha) : '-'
                         ]);
 
@@ -11085,8 +11124,8 @@
 
                         const tableDataPropuestas = propuestas.map(act => [
                             act.trimestre || '-',
-                            truncarPDF(act.nombre || 'Sin nombre', 40),
-                            (act.departamentos || []).join(', ').substring(0, 25),
+                            act.nombre || 'Sin nombre',
+                            (act.departamentos || []).join(', ') || '-',
                             '-'
                         ]);
 
@@ -11109,8 +11148,8 @@
                     const esRealizadas = estadoFiltro === 'realizadas';
                     const tableData = actividades.map(act => [
                         act.trimestre || '-',
-                        truncarPDF(act.nombre || 'Sin nombre', 45),
-                        (act.departamentos || []).join(', ').substring(0, 28),
+                        act.nombre || 'Sin nombre',
+                        (act.departamentos || []).join(', ') || '-',
                         act.fecha ? formatDate(act.fecha) : '-'
                     ]);
 
@@ -11211,6 +11250,13 @@
                 actividadesImpresas += actividades.length;
                 if (actividades.length === 0) return;
 
+                // Si el título del grupo no cabe ya en la página, saltar a
+                // una página nueva para que no quede fuera del PDF
+                if (yPos > doc.internal.pageSize.getHeight() - 40) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+
                 doc.setFontSize(14);
                 doc.setFont(undefined, 'bold');
                 doc.text(trimestre, 14, yPos);
@@ -11231,8 +11277,8 @@
 
                         const tableDataRealizadas = realizadas.map(act => [
                             (getCursosActividad(act).join(', ') || '-'),
-                            truncarPDF(act.nombre || 'Sin nombre', 40),
-                            (act.departamentos || []).join(', ').substring(0, 25),
+                            act.nombre || 'Sin nombre',
+                            (act.departamentos || []).join(', ') || '-',
                             act.fecha ? formatDate(act.fecha) : '-'
                         ]);
 
@@ -11259,8 +11305,8 @@
 
                         const tableDataPropuestas = propuestas.map(act => [
                             (getCursosActividad(act).join(', ') || '-'),
-                            truncarPDF(act.nombre || 'Sin nombre', 40),
-                            (act.departamentos || []).join(', ').substring(0, 25),
+                            act.nombre || 'Sin nombre',
+                            (act.departamentos || []).join(', ') || '-',
                             '-'
                         ]);
 
@@ -11283,8 +11329,8 @@
                     const esRealizadas = estadoFiltro === 'realizadas';
                     const tableData = actividades.map(act => [
                         (getCursosActividad(act).join(', ') || '-'),
-                        truncarPDF(act.nombre || 'Sin nombre', 45),
-                        (act.departamentos || []).join(', ').substring(0, 28),
+                        act.nombre || 'Sin nombre',
+                        (act.departamentos || []).join(', ') || '-',
                         act.fecha ? formatDate(act.fecha) : '-'
                     ]);
 
@@ -11334,6 +11380,79 @@
             } catch (error) {
                 console.error('[INFORME] Error en informe por trimestre:', error);
                 showToast('Error al generar el informe por trimestre: ' + error.message, 'error');
+            }
+        }
+
+        // ==================== INFORME GLOBAL EE ====================
+        // Informe global de todas las actividades extraescolares (EE) del
+        // curso activo: una única tabla apaisada con el título completo de
+        // cada actividad, su curso (o cursos) y su trimestre. Ningún texto
+        // se recorta: jsPDF autoTable parte las celdas largas en varias
+        // líneas y pagina automáticamente.
+        function generateInformeGlobalEE() {
+            try {
+                if (!window.jspdf) {
+                    throw new Error('La librería PDF (jsPDF) no está cargada. Recarga la página.');
+                }
+
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF('landscape');
+
+                addPDFHeader(doc, 'Informe Global de Actividades Extraescolares (EE)', true);
+
+                const actividades = getActividadesCursoActivo();
+
+                if (actividades.length === 0) {
+                    doc.setFontSize(12);
+                    doc.text('No hay actividades extraescolares registradas en este curso', 14, 50);
+                    doc.save(`Informe_Global_EE_${formatDateTimeFile()}.pdf`);
+                    showToast('No hay actividades extraescolares registradas', 'warning');
+                    return;
+                }
+
+                // Orden natural: por primer curso (1º antes que 2º), luego
+                // trimestre y luego título
+                const ordenTrim = t => {
+                    const s = String(t || '').toLowerCase();
+                    if (s.startsWith('primer') || s.startsWith('1')) return 1;
+                    if (s.startsWith('segundo') || s.startsWith('2')) return 2;
+                    if (s.startsWith('tercer') || s.startsWith('3')) return 3;
+                    return 99;
+                };
+                const ordenadas = actividades.slice().sort((a, b) => {
+                    const ca = getCursosActividad(a)[0] || '';
+                    const cb = getCursosActividad(b)[0] || '';
+                    if (ca !== cb) return ca.localeCompare(cb, 'es', { numeric: true });
+                    const difTrim = ordenTrim(a.trimestre) - ordenTrim(b.trimestre);
+                    if (difTrim !== 0) return difTrim;
+                    return String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
+                });
+
+                const tableData = ordenadas.map(act => [
+                    act.nombre || 'Sin nombre',
+                    (getCursosActividad(act).join(', ') || '-'),
+                    act.trimestre || '-'
+                ]);
+
+                doc.autoTable({
+                    startY: 40,
+                    head: [['Actividad', 'Curso', 'Trimestre']],
+                    body: tableData,
+                    theme: 'striped',
+                    headStyles: { fillColor: [13, 115, 119] },
+                    margin: { left: 14, right: 14, top: 20 },
+                    styles: { fontSize: 9 },
+                    columnStyles: {
+                        1: { cellWidth: 60 },
+                        2: { cellWidth: 40 }
+                    }
+                });
+
+                doc.save(`Informe_Global_EE_${formatDateTimeFile()}.pdf`);
+                showToast(`Informe global generado (${actividades.length} actividad${actividades.length === 1 ? '' : 'es'})`, 'success');
+            } catch (error) {
+                console.error('[INFORME] Error en informe global EE:', error);
+                showToast('Error al generar el informe global: ' + error.message, 'error');
             }
         }
 
@@ -16313,7 +16432,7 @@ function generarPDFCC(docParam, tipo) {
             yPos += 7;
 
             const tableData = agrupados[unidad].map(d => [
-                truncarPDF(d.nombre || 'Sin nombre', 45),
+                d.nombre || 'Sin nombre',
                 d.fecha ? formatDate(d.fecha) : '-'
             ]);
 
@@ -16339,7 +16458,7 @@ function generarPDFCC(docParam, tipo) {
         // Tabla simple para otros informes
         const tableData = datos.map(d => [
             d.unidad || '-',
-            truncarPDF(d.nombre || 'Sin nombre', 45),
+            d.nombre || 'Sin nombre',
             d.fecha ? formatDate(d.fecha) : '-'
         ]);
 
@@ -16449,8 +16568,8 @@ function generarPDFEE(docParam, tipo) {
 
             const tableData = agrupados[curso].map(d => [
                 d.trimestre || '-',
-                truncarPDF(d.nombre || 'Sin nombre', 40),
-                (d.departamentos || []).join(', ').substring(0, 25),
+                d.nombre || 'Sin nombre',
+                (d.departamentos || []).join(', ') || '-',
                 d.fecha ? formatDate(d.fecha) : '-'
             ]);
 
@@ -16474,7 +16593,7 @@ function generarPDFEE(docParam, tipo) {
     } else {
         const tableData = datos.map(d => [
             d.curso || '-',
-            truncarPDF(d.nombre || 'Sin nombre', 40),
+            d.nombre || 'Sin nombre',
             d.fecha ? formatDate(d.fecha) : '-'
         ]);
 
